@@ -255,7 +255,9 @@ const Pods = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             {currentSharedResume && (
-              <MasterResumeDisplay resume={currentSharedResume.versionResume} fitScore={0} />
+              <React.Fragment> {/* Added React.Fragment here */}
+                <MasterResumeDisplay resume={currentSharedResume.versionResume} fitScore={0} />
+              </React.Fragment>
             )}
             <h3 className="text-xl font-semibold mt-4">Comments ({currentSharedResume?.comments.length || 0})</h3>
             <div className="space-y-3 max-h-60 overflow-y-auto p-2 border rounded-md bg-muted/50">
