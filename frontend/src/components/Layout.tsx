@@ -75,7 +75,7 @@ const Layout = () => {
     <div className="flex min-h-screen bg-background">
       {/* Desktop Sidebar */}
       {!isMobile && (
-        <aside className="hidden md:flex w-64 flex-col border-r bg-sidebar p-4">
+        <aside className="hidden md:flex w-64 flex-col bg-sidebar p-4 shadow-xl rounded-r-lg">
           <div className="mb-6 text-2xl font-bold text-sidebar-primary">CareerCircle</div>
           <SidebarNav isAuthenticated={isAuthenticated} logout={logout} />
         </aside>
