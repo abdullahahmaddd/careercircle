@@ -10,8 +10,8 @@ import ResumeEditor from "@/components/ResumeEditor";
 import MasterResumeDisplay from "@/components/MasterResumeDisplay";
 import { Upload, FileText, PlusCircle, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useResumes } from "@/context/ResumeContext"; // Import useResumes
-import VersionResumeCard from "@/components/VersionResumeCard"; // Import VersionResumeCard
+import { useResumes } from "@/context/ResumeContext";
+import VersionResumeCard from "@/components/VersionResumeCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +46,9 @@ const Resumes = () => {
   const [isCreateVersionDialogOpen, setIsCreateVersionDialogOpen] = useState(false);
   const [newVersionName, setNewVersionName] = useState("");
 
+  // State to prevent repeated toasts for unsynced changes
+  const [hasNotifiedUnsynced, setHasNotifiedUnsynced] = useState(false);
+
   // Initialize editedMasterContent when masterResume changes or on first load
   useEffect(() => {
     if (masterResume) {
@@ -54,6 +57,29 @@ const Resumes = () => {
       setEditedMasterContent(null);
     }
   }, [masterResume]);
+
+  // Effect to check for unsynced version resumes and show a toast
+  useEffect(() => {
+    if (isAuthenticated && currentUser && masterResume && versionResumes.length > 0 && !hasNotifiedUnsynced) {
+      const unsyncedVersions = versionResumes.filter(version =>
+        JSON.stringify(version.content) !== JSON.stringify(masterResume.content)
+      );
+
+      if (unsyncedVersions.length > 0) {
+        toast.info(
+          `You have ${unsyncedVersions.length} version resume(s) with unsynced changes. Review them in the 'Version Resumes' section.`,
+          {
+            duration: 8000,
+            action: {
+              label: "Dismiss",
+              onClick: () => setHasNotifiedUnsynced(true),
+            },
+          }
+        );
+      }
+    }
+  }, [isAuthenticated, currentUser, masterResume, versionResumes, hasNotifiedUnsynced]);
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
