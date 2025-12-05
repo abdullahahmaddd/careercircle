@@ -283,25 +283,34 @@ const FirstApplicationWorkflow = () => {
     if (!currentUser || !currentEditedVersionContent || !versionResumeIdForSync) return;
 
     let targetPodId = selectedPodId;
-    if (!targetPodId) {
-      // If no pod selected, create a default one for the user
-      const newPod = await createPod(`${currentUser.name}'s CareerCircle`, currentUser.id, currentUser.name, currentUser.email);
+    const userOwnedPods = pods.filter(pod => pod.ownerId === currentUser.id);
+
+    // If no pod is selected AND the user has no existing pods, create a new one.
+    if (!targetPodId && userOwnedPods.length === 0) {
+      const newPod = await createPod(`${currentUser.name}'s CareerCircle Pod`, currentUser.id, currentUser.name, currentUser.email);
       if (newPod) {
         targetPodId = newPod.id;
+        toast.info(`Created a new Pod: "${newPod.name}" for you.`);
       } else {
         toast.error("Failed to create a Pod.");
         return;
       }
+    } else if (!targetPodId && userOwnedPods.length > 0) {
+      // If user has pods but didn't select one, default to the first owned pod
+      targetPodId = userOwnedPods[0].id;
+      toast.info(`Defaulting to your first Pod: "${userOwnedPods[0].name}".`);
     }
 
     if (targetPodId) {
       if (peerEmailToInvite) {
         await invitePeerToPod(targetPodId, peerEmailToInvite);
       }
+      // Ensure the resume shared is the *current edited version content*
       await shareResumeInPod(targetPodId, currentUser.id, currentUser.name, currentEditedVersionContent);
       setShowInvitePodDialog(false);
       setPeerEmailToInvite("");
       setSelectedPodId(undefined);
+      toast.success("Resume shared and peer invited (if email provided)!");
     }
   };
 
@@ -693,7 +702,7 @@ const FirstApplicationWorkflow = () => {
               <Label htmlFor="pod-select">Select an existing Pod or a new one will be created</Label>
               <Select value={selectedPodId} onValueChange={setSelectedPodId}>
                 <SelectTrigger id="pod-select">
-                  <SelectValue placeholder="Select a Pod" />
+                  <SelectValue placeholder="Select a Pod (optional)" />
                 </SelectTrigger>
                 <SelectContent>
                   {pods.filter(pod => pod.ownerId === currentUser?.id).map(pod => (
@@ -701,6 +710,11 @@ const FirstApplicationWorkflow = () => {
                   ))}
                 </SelectContent>
               </Select>
+              {pods.filter(pod => pod.ownerId === currentUser?.id).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No pods found. A new "My CareerCircle Pod" will be created for you.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="peer-email">Peer's Email (Optional)</Label>
