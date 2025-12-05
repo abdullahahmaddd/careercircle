@@ -253,7 +253,7 @@ const Pods = () => {
               Shared by {currentSharedResume?.resumeOwnerName} on {new Date(currentSharedResume?.sharedDate || '').toLocaleDateString()}.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4"> {/* This div now correctly contains the main content */}
+          <div className="grid gap-4 py-4">
             {currentSharedResume && (
               <MasterResumeDisplay resume={currentSharedResume.versionResume} fitScore={0} /> {/* No JD for shared view */}
             )}
