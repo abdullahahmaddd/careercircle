@@ -4,11 +4,11 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ArrowRight, CheckCircle2, Upload, FileText, Download, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Upload, FileText, Download, Share2, CalendarDays, Briefcase } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { parseJobDescription, ParsedJobDescription } from "@/utils/jdParser";
+import { parseJobDescription, ParsedJobDescription, calculateFitScore } from "@/utils/jdParser";
 import { parseResumeFile, ParsedResume, Experience, Education, Skill } from "@/utils/resumeParser";
 import {
   AlertDialog,
@@ -20,6 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import MasterResumeDisplay from "@/components/MasterResumeDisplay"; // Import the new component
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Helper function to generate ATS-compliant plain text resume content
 const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): string => {
@@ -63,6 +65,21 @@ const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): 
   return text;
 };
 
+// Mock Job Entry and Playlist types for in-memory state
+interface JobEntry {
+  id: string;
+  roleTitle: string;
+  applicationDeadline: string;
+  status: 'Not started' | 'Draft ready' | 'Applied' | 'Interviewing' | 'Offer';
+  jdText: string;
+  parsedJd: ParsedJobDescription;
+}
+
+interface Playlist {
+  id: string;
+  name: string;
+  jobEntries: JobEntry[];
+}
 
 const FirstApplicationWorkflow = () => {
   const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring, 7: Export & Share
@@ -71,6 +88,7 @@ const FirstApplicationWorkflow = () => {
   const [editedRole, setEditedRole] = useState("");
   const [editedDomain, setEditedDomain] = useState("");
   const [editedKeywords, setEditedKeywords] = useState<string[]>([]);
+  const [fitScore, setFitScore] = useState(0);
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [parsedResume, setParsedResume] = useState<ParsedResume | null>(null);
@@ -92,6 +110,15 @@ const FirstApplicationWorkflow = () => {
   const [hasVersionChanges, setHasVersionChanges] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
 
+  // Mock Playlist State (FR-006)
+  const [playlists, setPlaylists] = useState<Playlist[]>([
+    { id: "playlist-1", name: "My First Applications", jobEntries: [] },
+  ]);
+  const [currentJobEntry, setCurrentJobEntry] = useState<JobEntry | null>(null);
+  const [jobEntryStatus, setJobEntryStatus] = useState<JobEntry['status']>('Not started');
+  const [applicationDeadline, setApplicationDeadline] = useState("");
+
+
   const handleParseJd = () => {
     if (jobDescription.trim()) {
       const result = parseJobDescription(jobDescription);
@@ -105,7 +132,6 @@ const FirstApplicationWorkflow = () => {
 
   const handleConfirmJd = () => {
     if (parsedJd) {
-      // In a real app, you'd save this to state/context/backend
       const finalJd = {
         ...parsedJd,
         role: editedRole,
@@ -113,7 +139,27 @@ const FirstApplicationWorkflow = () => {
         keywords: editedKeywords,
       };
       console.log("Confirmed JD:", finalJd);
-      // TODO: Implement saving JD to a playlist (FR-006)
+
+      // Create and save Job Entry to a mock playlist (FR-006)
+      const newJobEntry: JobEntry = {
+        id: `job-${Date.now()}`,
+        roleTitle: finalJd.role,
+        applicationDeadline: applicationDeadline || "N/A", // Use input or default
+        status: 'Not started',
+        jdText: jobDescription,
+        parsedJd: finalJd,
+      };
+      setCurrentJobEntry(newJobEntry);
+      setJobEntryStatus(newJobEntry.status); // Initialize status for display
+
+      setPlaylists(prev => {
+        const firstPlaylist = prev[0];
+        if (firstPlaylist) {
+          return [{ ...firstPlaylist, jobEntries: [...firstPlaylist.jobEntries, newJobEntry] }, ...prev.slice(1)];
+        }
+        return prev;
+      });
+
       setStep(3); // Move to Resume Import step
     }
   };
@@ -165,13 +211,20 @@ const FirstApplicationWorkflow = () => {
       };
       console.log("Confirmed Master Resume:", finalResume);
       setMasterResume(finalResume); // Store the master resume
+
+      // Calculate initial fit score for Master Resume Overview
+      if (parsedJd) {
+        const score = calculateFitScore(finalResume, parsedJd.keywords);
+        setFitScore(score);
+      }
+
       setStep(5); // Move to Master Resume Overview
     }
   };
 
   const handleGenerateVersionResume = () => {
     if (masterResume) {
-      // Create a deep copy of the master resume for the version
+      // Create a deep copy of the master resume for the version (FR-003)
       const newVersion = JSON.parse(JSON.stringify(masterResume));
       setVersionResume(newVersion);
       setHasVersionChanges(false); // No changes initially
@@ -200,6 +253,7 @@ const FirstApplicationWorkflow = () => {
     }
 
     const resumeTextContent = generateAtsCompliantTextResume(versionResume, editedRole);
+    // Enforce descriptive file naming (FR-008)
     const filename = `${versionResume.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`; // Using .txt for mock
 
     const element = document.createElement("a");
@@ -214,14 +268,14 @@ const FirstApplicationWorkflow = () => {
   };
 
   const handleInviteToPod = () => {
-    alert("Mock: Inviting peers to your Pod! (Email invitations would be sent)");
+    alert("Mock: Inviting peers to your Pod! (Email invitations would be sent) (FR-007)");
     console.log("Inviting peers to Pod.");
     // TODO: Implement actual Pod invitation (FR-007)
   };
 
   const handleSyncChanges = () => {
     if (masterResume && versionResume) {
-      // For mock, we'll just update the master summary
+      // For mock, we'll just update the master summary (FR-003)
       setMasterResume({ ...masterResume, summary: versionResume.summary });
       console.log("Changes from Version Resume synced to Master Resume.");
     }
@@ -252,6 +306,15 @@ const FirstApplicationWorkflow = () => {
     else if (step === 7) setStep(6);
   };
 
+  const handleJobEntryStatusChange = (value: JobEntry['status']) => {
+    setJobEntryStatus(value);
+    if (currentJobEntry) {
+      setCurrentJobEntry(prev => prev ? { ...prev, status: value } : null);
+      // In a real app, you'd update the playlist state here
+      console.log(`Job Entry status updated to: ${value}`);
+    }
+  };
+
   return (
     <div className="flex flex-col items-center justify-center p-4">
       <Card className="w-full max-w-3xl shadow-lg">
@@ -262,8 +325,8 @@ const FirstApplicationWorkflow = () => {
             {step === 2 && "Review and confirm the extracted job details. You can make adjustments if needed."}
             {step === 3 && "Now, let's import your existing resume to create your Master Resume."}
             {step === 4 && "Review the parsed resume data. Make any necessary edits before creating your Master Resume."}
-            {step === 5 && "Your Master Resume is ready! Now, let's create a tailored version for your application."}
-            {step === 6 && "You're now tailoring your Version Resume. This is where you'd optimize it for the job description."}
+            {step === 5 && "Your Master Resume is ready! Review your content and see how well it fits the job description."}
+            {step === 6 && "You're now tailoring your Version Resume. Optimize content, keywords, and structure to match the job description."}
             {step === 7 && "Great job! Your tailored resume is ready. Now, export it and consider getting feedback from your peers."}
           </CardDescription>
         </CardHeader>
@@ -280,6 +343,15 @@ const FirstApplicationWorkflow = () => {
                 rows={15}
                 className="min-h-[200px]"
               />
+              <div className="space-y-2">
+                <Label htmlFor="application-deadline">Application Deadline (Optional)</Label>
+                <Input
+                  id="application-deadline"
+                  type="date"
+                  value={applicationDeadline}
+                  onChange={(e) => setApplicationDeadline(e.target.value)}
+                />
+              </div>
               <Button onClick={handleParseJd} disabled={!jobDescription.trim()}>
                 Parse JD & Next Step <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -344,6 +416,31 @@ const FirstApplicationWorkflow = () => {
                   (This is a mock upload. We'll simulate parsing your resume data.)
                 </p>
               </div>
+              {currentJobEntry && (
+                <Card className="p-4 border-l-4 border-primary">
+                  <CardTitle className="text-lg flex items-center gap-2 mb-2">
+                    <Briefcase className="h-5 w-5" /> Job Saved: {currentJobEntry.roleTitle}
+                  </CardTitle>
+                  <CardDescription className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" /> Deadline: {currentJobEntry.applicationDeadline}
+                  </CardDescription>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Label>Status:</Label>
+                    <Select value={jobEntryStatus} onValueChange={handleJobEntryStatusChange}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Not started">Not started</SelectItem>
+                        <SelectItem value="Draft ready">Draft ready</SelectItem>
+                        <SelectItem value="Applied">Applied</SelectItem>
+                        <SelectItem value="Interviewing">Interviewing</SelectItem>
+                        <SelectItem value="Offer">Offer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </Card>
+              )}
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -492,14 +589,39 @@ const FirstApplicationWorkflow = () => {
           )}
 
           {/* Step 5: Master Resume Overview */}
-          {step === 5 && (
-            <div className="space-y-6 text-center">
-              <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
-              <h3 className="text-2xl font-semibold">Master Resume Created!</h3>
-              <p className="text-muted-foreground">
+          {step === 5 && masterResume && (
+            <div className="space-y-6">
+              <h3 className="text-2xl font-semibold text-center">Master Resume Overview</h3>
+              <p className="text-muted-foreground text-center">
                 Your Master Resume is now the single source of truth for your professional experience.
-                Next, let's generate a tailored version for the job you just saved.
+                Keywords from the job description are highlighted below, and a Fit Score is calculated.
               </p>
+              <MasterResumeDisplay resume={masterResume} jobDescription={parsedJd} fitScore={fitScore} />
+              {currentJobEntry && (
+                <Card className="p-4 border-l-4 border-primary">
+                  <CardTitle className="text-lg flex items-center gap-2 mb-2">
+                    <Briefcase className="h-5 w-5" /> Job Tracked: {currentJobEntry.roleTitle}
+                  </CardTitle>
+                  <CardDescription className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" /> Deadline: {currentJobEntry.applicationDeadline}
+                  </CardDescription>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Label>Status:</Label>
+                    <Select value={jobEntryStatus} onValueChange={handleJobEntryStatusChange}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Not started">Not started</SelectItem>
+                        <SelectItem value="Draft ready">Draft ready</SelectItem>
+                        <SelectItem value="Applied">Applied</SelectItem>
+                        <SelectItem value="Interviewing">Interviewing</SelectItem>
+                        <SelectItem value="Offer">Offer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </Card>
+              )}
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -515,9 +637,9 @@ const FirstApplicationWorkflow = () => {
           {step === 6 && versionResume && (
             <div className="space-y-6 text-center">
               <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
-              <h3 className="text-2xl font-semibold">Version Resume Tailoring</h3>
+              <h3 className="text-2xl font-semibold">Version Resume Tailoring for "{editedRole}"</h3>
               <p className="text-muted-foreground mb-4">
-                You are now working on a tailored version of your resume for the "{editedRole || "selected"}" role.
+                You are now working on a tailored version of your resume.
                 Optimize content, keywords, and structure to match the job description.
               </p>
               <div className="space-y-2 text-left">
@@ -597,7 +719,7 @@ const FirstApplicationWorkflow = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Unsaved Changes in Version Resume</AlertDialogTitle>
             <AlertDialogDescription>
-              You've made changes to your tailored Version Resume. Would you like to apply these changes to your Master Resume before going back?
+              We noticed you updated your "{editedRole || "tailored"}" version. Would you like to apply these changes to your Master Resume before going back?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

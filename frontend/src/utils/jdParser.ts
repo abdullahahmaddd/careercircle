@@ -58,3 +58,31 @@ export const parseJobDescription = (jdText: string): ParsedJobDescription => {
 
   return { role, domain, keywords: Array.from(new Set(keywords)) }; // Ensure unique keywords
 };
+
+/**
+ * Calculates a mock "Fit Score" by comparing JD keywords against resume content.
+ * This is a simplified, frontend-only implementation.
+ */
+export const calculateFitScore = (
+  resume: { summary?: string; experience: { description: string[] }[]; skills: { name: string }[] },
+  jdKeywords: string[]
+): number => {
+  if (!jdKeywords || jdKeywords.length === 0) return 100; // If no JD keywords, perfect fit
+
+  let matchedKeywordsCount = 0;
+  const totalKeywords = jdKeywords.length;
+
+  const resumeText = [
+    resume.summary || "",
+    ...resume.experience.flatMap(exp => exp.description),
+    ...resume.skills.map(skill => skill.name)
+  ].join(" ").toLowerCase();
+
+  jdKeywords.forEach(keyword => {
+    if (resumeText.includes(keyword.toLowerCase())) {
+      matchedKeywordsCount++;
+    }
+  });
+
+  return Math.round((matchedKeywordsCount / totalKeywords) * 100);
+};
