@@ -253,9 +253,37 @@ const Pods = () => {
               Shared by {currentSharedResume?.resumeOwnerName} on {new Date(currentSharedResume?.sharedDate || '').toLocaleDateString()}.
             </DialogDescription>
           </DialogHeader>
-          {/* Simplified content for debugging */}
-          <div className="p-4 text-center text-muted-foreground">
-            Content area for shared resume (simplified for debugging)
+          <div className="grid gap-4 py-4">
+            {currentSharedResume && (
+              <MasterResumeDisplay resume={currentSharedResume.versionResume} fitScore={0} />
+            )}
+            <h3 className="text-xl font-semibold mt-4">Comments ({currentSharedResume?.comments.length || 0})</h3>
+            <div className="space-y-3 max-h-60 overflow-y-auto p-2 border rounded-md bg-muted/50">
+              {currentSharedResume?.comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No comments yet. Be the first to leave feedback!</p>
+              ) : (
+                currentSharedResume?.comments.map(comment => (
+                  <div key={comment.id} className="border-b pb-2 last:border-b-0 last:pb-0">
+                    <p className="text-sm font-medium">{comment.authorName} <span className="text-muted-foreground text-xs ml-2">{new Date(comment.createdAt).toLocaleString()}</span></p>
+                    <p className="text-sm">{comment.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-comment">Leave a Comment</Label>
+              <Textarea
+                id="new-comment"
+                placeholder="Type your feedback here..."
+                value={newCommentText}
+                onChange={(e) => setNewCommentText(e.target.value)}
+                rows={3}
+                disabled={!currentUser}
+              />
+              <Button onClick={handleAddComment} disabled={!newCommentText.trim() || !currentUser}>
+                Add Comment
+              </Button>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsViewResumeDialogOpen(false)}>Close</Button>
