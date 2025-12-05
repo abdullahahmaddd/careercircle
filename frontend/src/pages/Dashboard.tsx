@@ -4,6 +4,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Rocket } from "lucide-react";
+import { Link } from "react-router-dom"; // Import Link
 
 const Dashboard = () => {
   return (
@@ -17,8 +18,10 @@ const Dashboard = () => {
         <p className="text-md text-muted-foreground mb-8">
           Ready to supercharge your job search? Let's get started with your first application!
         </p>
-        <Button size="lg" onClick={() => console.log("Start First Application Workflow")}>
-          Start Your First Application
+        <Button size="lg" asChild> {/* Use asChild to pass props to Link */}
+          <Link to="/first-application">
+            Start Your First Application
+          </Link>
         </Button>
       </Card>
     </div>
