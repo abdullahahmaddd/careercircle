@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label";
 
 const Resumes = () => {
   const { currentUser, isAuthenticated } = useAuth();
-  const { masterResume, versionResumes, saveMasterResume, updateMasterResumeContent, createVersionResume, deleteResume } = useResumes();
+  const { masterResume, versionResumes, saveMasterResume, updateMasterResumeContent, createVersionResume, deleteResume, syncVersionToMaster } = useResumes();
 
   const [isEditingMaster, setIsEditingMaster] = useState(false);
   const [editedMasterContent, setEditedMasterContent] = useState<ParsedResume | null>(null);
@@ -48,6 +48,14 @@ const Resumes = () => {
 
   // State to prevent repeated toasts for unsynced changes
   const [hasNotifiedUnsynced, setHasNotifiedUnsynced] = useState(false);
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
+  const [unsyncedVersionNames, setUnsyncedVersionNames] = useState<string[]>([]);
+
+  // Helper to compare resumes for changes
+  const resumesAreEqual = (res1: ParsedResume | null, res2: ParsedResume | null): boolean => {
+    if (!res1 || !res2) return res1 === res2;
+    return JSON.stringify(res1) === JSON.stringify(res2);
+  };
 
   // Initialize editedMasterContent when masterResume changes or on first load
   useEffect(() => {
@@ -58,25 +66,29 @@ const Resumes = () => {
     }
   }, [masterResume]);
 
-  // Effect to check for unsynced version resumes and show a toast
+  // Effect to check for unsynced version resumes and show a toast/dialog
   useEffect(() => {
-    if (isAuthenticated && currentUser && masterResume && versionResumes.length > 0 && !hasNotifiedUnsynced) {
-      const unsyncedVersions = versionResumes.filter(version =>
-        JSON.stringify(version.content) !== JSON.stringify(masterResume.content)
+    if (isAuthenticated && currentUser && masterResume && versionResumes.length > 0) {
+      const unsynced = versionResumes.filter(version =>
+        !resumesAreEqual(version.content, masterResume.content)
       );
 
-      if (unsyncedVersions.length > 0) {
-        toast.info(
-          `You have ${unsyncedVersions.length} version resume(s) with unsynced changes. Review them in the 'Version Resumes' section.`,
-          {
-            duration: 8000,
-            action: {
-              label: "Dismiss",
-              onClick: () => setHasNotifiedUnsynced(true),
-            },
-          }
-        );
+      if (unsynced.length > 0) {
+        const names = unsynced.map(v => v.name);
+        setUnsyncedVersionNames(names);
+        if (!hasNotifiedUnsynced) {
+          setShowSyncPrompt(true); // Show dialog on first detection
+          setHasNotifiedUnsynced(true); // Mark as notified
+        }
+      } else {
+        setShowSyncPrompt(false);
+        setUnsyncedVersionNames([]);
+        setHasNotifiedUnsynced(false); // Reset if all are synced
       }
+    } else {
+      setShowSyncPrompt(false);
+      setUnsyncedVersionNames([]);
+      setHasNotifiedUnsynced(false);
     }
   }, [isAuthenticated, currentUser, masterResume, versionResumes, hasNotifiedUnsynced]);
 
@@ -141,6 +153,23 @@ const Resumes = () => {
     await createVersionResume(currentUser.id, masterResume.id, newVersionName, JSON.parse(JSON.stringify(masterResume.content)));
     setNewVersionName("");
     setIsCreateVersionDialogOpen(false);
+  };
+
+  const handleSyncAllVersionsToMaster = async () => {
+    if (!currentUser || !masterResume) {
+      toast.error("Master Resume not found or user not logged in.");
+      return;
+    }
+
+    const unsynced = versionResumes.filter(version =>
+      !resumesAreEqual(version.content, masterResume.content)
+    );
+
+    for (const version of unsynced) {
+      await syncVersionToMaster(version.id);
+    }
+    setShowSyncPrompt(false);
+    toast.success("All unsynced version resumes have been synced to Master Resume.");
   };
 
   if (!isAuthenticated) {
@@ -276,6 +305,28 @@ const Resumes = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Unsynced Changes Alert Dialog */}
+      <AlertDialog open={showSyncPrompt} onOpenChange={setShowSyncPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsynced Version Resume Changes Detected!</AlertDialogTitle>
+            <AlertDialogDescription>
+              We noticed you have unsynced changes in the following version resume(s):
+              <ul className="list-disc list-inside mt-2">
+                {unsyncedVersionNames.map((name, index) => (
+                  <li key={index} className="font-medium">{name}</li>
+                ))}
+              </ul>
+              Would you like to apply these changes to your Master Resume now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Dismiss</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSyncAllVersionsToMaster}>Sync All to Master</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -20,6 +20,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { Download } from "lucide-react";
 
 const Settings = () => {
   const { isAuthenticated, currentUser, updateProfile, deleteAccount, logout } = useAuth();
@@ -47,6 +48,46 @@ const Settings = () => {
         setIsEditing(false);
       }
     }
+  };
+
+  const handleDownloadUserData = () => {
+    if (!currentUser) {
+      toast.error("No user data to download.");
+      return;
+    }
+
+    const userId = currentUser.id;
+    const userData: { [key: string]: any } = {
+      userProfile: currentUser,
+      resumes: [],
+      playlists: [],
+      pods: [],
+    };
+
+    // Gather user-specific data from localStorage
+    if (typeof window !== 'undefined') {
+      const allResumes = JSON.parse(localStorage.getItem('careerCircleResumes') || '[]');
+      userData.resumes = allResumes.filter((r: any) => r.userId === userId);
+
+      const allPlaylists = JSON.parse(localStorage.getItem('careerCirclePlaylists') || '[]');
+      // This filtering is a bit tricky due to the mock playlist structure.
+      // Assuming 'default-playlist' is shared or not directly user-owned in the same way.
+      // For a robust solution, Playlist should have an ownerId.
+      userData.playlists = allPlaylists.filter((p: any) => p.jobEntries.some((je: any) => je.id.startsWith('job-') && je.id.split('-')[1] === userId.split('-')[1]));
+
+      const allPods = JSON.parse(localStorage.getItem('careerCirclePods') || '[]');
+      userData.pods = allPods.filter((p: any) => p.ownerId === userId || p.members.some((m: any) => m.id === userId));
+    }
+
+    const filename = `careerCircle_data_${currentUser.name.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+    const element = document.createElement("a");
+    const file = new Blob([JSON.stringify(userData, null, 2)], { type: "application/json" });
+    element.href = URL.createObjectURL(file);
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    toast.success("Your data has been downloaded!");
   };
 
   const handleDeleteAccount = async () => {
@@ -130,25 +171,30 @@ const Settings = () => {
           <CardDescription>Permanently delete your account and all associated data.</CardDescription>
         </CardHeader>
         <CardContent>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">Delete Account</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete your account and remove your data from our servers.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                  Delete Account
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <div className="flex flex-col gap-4">
+            <Button variant="outline" onClick={handleDownloadUserData}>
+              <Download className="mr-2 h-4 w-4" /> Download My Data (JSON)
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive">Delete Account</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete your account and remove your data from our servers.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Delete Account
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </CardContent>
       </Card>
     </div>
