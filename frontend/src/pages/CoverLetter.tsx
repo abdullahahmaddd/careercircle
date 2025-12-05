@@ -12,13 +12,14 @@ import { usePlaylists, JobEntry } from "@/context/PlaylistContext";
 import { useAuth } from "@/context/AuthContext";
 import { generateCoverLetter } from "@/utils/coverLetterGenerator";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const CoverLetter = () => {
   const { isAuthenticated, currentUser } = useAuth();
   const { masterResume, versionResumes, getResumeById } = useResumes();
   const { playlists } = usePlaylists();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [selectedResumeId, setSelectedResumeId] = useState<string | undefined>(undefined);
   const [selectedJobEntryId, setSelectedJobEntryId] = useState<string | undefined>(undefined);
@@ -34,11 +35,18 @@ const CoverLetter = () => {
   }, [isAuthenticated, navigate]);
 
   useEffect(() => {
-    // Pre-select master resume if available and no other resume is selected
-    if (!selectedResumeId && masterResume) {
+    // Pre-select resume from URL param if available
+    const resumeIdParam = searchParams.get('resumeId');
+    if (resumeIdParam && getResumeById(resumeIdParam)) {
+      setSelectedResumeId(resumeIdParam);
+    } else if (!selectedResumeId && masterResume) {
+      // Otherwise, pre-select master resume if available and no other resume is selected
       setSelectedResumeId(masterResume.id);
+    } else if (!selectedResumeId && versionResumes.length > 0) {
+      // Or pre-select the first version resume if no master
+      setSelectedResumeId(versionResumes[0].id);
     }
-  }, [masterResume, selectedResumeId]);
+  }, [masterResume, versionResumes, selectedResumeId, searchParams, getResumeById]);
 
   const handleGenerateLetter = () => {
     if (!selectedResumeId || !selectedJobEntryId) {
