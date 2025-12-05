@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Resume, useResumes } from "@/context/ResumeContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Edit, GitMerge, Trash2, Eye, Mail } from "lucide-react"; // Import Mail icon
+import { FileText, Edit, GitMerge, Trash2, Eye, Mail } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +29,8 @@ import ResumeEditor from "./ResumeEditor";
 import MasterResumeDisplay from "./MasterResumeDisplay";
 import { toast } from "sonner";
 import { ParsedResume } from "@/utils/resumeParser";
-import { Link } from "react-router-dom"; // Import Link
+import { Link } from "react-router-dom";
+import { Badge } from "@/components/ui/badge"; // Import Badge
 
 interface VersionResumeCardProps {
   versionResume: Resume;
@@ -42,6 +43,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
   const [editedVersionContent, setEditedVersionContent] = useState<ParsedResume>(versionResume.content);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
 
+  // Check for changes by comparing stringified JSON content
   const hasChangesComparedToMaster = masterResumeContent && JSON.stringify(versionResume.content) !== JSON.stringify(masterResumeContent);
 
   const handleDelete = async () => {
@@ -75,6 +77,11 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-secondary-foreground" /> {versionResume.name}
+          {hasChangesComparedToMaster && (
+            <Badge variant="outline" className="ml-2 text-orange-500 border-orange-500">
+              Unsynced Changes
+            </Badge>
+          )}
         </CardTitle>
         <CardDescription>Last Modified: {new Date(versionResume.lastModifiedAt).toLocaleDateString()}</CardDescription>
       </CardHeader>
@@ -136,7 +143,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={handleSyncToMaster}>Sync</AlertDialogAction>
-              </AlertDialogFooter>
+              </AlertDialogAction>
             </AlertDialogContent>
           </AlertDialog>
 
