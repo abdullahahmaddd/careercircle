@@ -40,6 +40,7 @@ interface PodContextType {
   invitePeerToPod: (podId: string, peerEmail: string) => Promise<boolean>;
   shareResumeInPod: (podId: string, resumeOwnerId: string, resumeOwnerName: string, versionResume: ParsedResume) => Promise<SharedResume | null>;
   addCommentToSharedResume: (sharedResumeId: string, authorId: string, authorName: string, text: string, location?: string) => Promise<boolean>;
+  deleteComment: (sharedResumeId: string, commentId: string, currentUserId: string, resumeOwnerId: string) => Promise<boolean>;
   getPodById: (podId: string) => Pod | undefined;
   getSharedResumeById: (sharedResumeId: string) => SharedResume | undefined;
 }
@@ -154,6 +155,37 @@ export const PodProvider = ({ children }: { children: ReactNode }) => {
     return true;
   };
 
+  const deleteComment = async (sharedResumeId: string, commentId: string, currentUserId: string, resumeOwnerId: string): Promise<boolean> => {
+    let commentDeleted = false;
+    setPods((prev) =>
+      prev.map((pod) => ({
+        ...pod,
+        sharedResumes: pod.sharedResumes.map((sr) => {
+          if (sr.id === sharedResumeId) {
+            const updatedComments = sr.comments.filter(comment => {
+              // Only allow deletion if current user is the author or the resume owner
+              if (comment.id === commentId && (comment.authorId === currentUserId || resumeOwnerId === currentUserId)) {
+                commentDeleted = true;
+                return false; // Remove this comment
+              }
+              return true; // Keep other comments
+            });
+            return { ...sr, comments: updatedComments };
+          }
+          return sr;
+        }),
+      })),
+    );
+
+    if (commentDeleted) {
+      toast.success("Comment deleted successfully.");
+      return true;
+    } else {
+      toast.error("Failed to delete comment. You might not have permission.");
+      return false;
+    }
+  };
+
   const getPodById = (podId: string) => pods.find(pod => pod.id === podId);
   const getSharedResumeById = (sharedResumeId: string) => {
     for (const pod of pods) {
@@ -171,6 +203,7 @@ export const PodProvider = ({ children }: { children: ReactNode }) => {
         invitePeerToPod,
         shareResumeInPod,
         addCommentToSharedResume,
+        deleteComment,
         getPodById,
         getSharedResumeById,
       }}

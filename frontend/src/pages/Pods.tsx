@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Users, Share2, MessageSquare, UserPlus, Mail, FileText } from "lucide-react";
+import { PlusCircle, Users, Share2, MessageSquare, UserPlus, Mail, FileText, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,9 +20,20 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import MasterResumeDisplay from "@/components/MasterResumeDisplay"; // Re-use for shared resume view
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const Pods = () => {
-  const { pods, createPod, invitePeerToPod, shareResumeInPod, addCommentToSharedResume, getSharedResumeById } = usePods();
+  const { pods, createPod, invitePeerToPod, shareResumeInPod, addCommentToSharedResume, deleteComment, getSharedResumeById } = usePods();
   const { currentUser, isAuthenticated } = useAuth();
 
   const [newPodName, setNewPodName] = useState("");
@@ -96,6 +107,18 @@ const Pods = () => {
     const updatedSharedResume = getSharedResumeById(currentSharedResume.id);
     if (updatedSharedResume) {
       setCurrentSharedResume(updatedSharedResume);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!currentUser || !currentSharedResume) return;
+    const success = await deleteComment(currentSharedResume.id, commentId, currentUser.id, currentSharedResume.resumeOwnerId);
+    if (success) {
+      // Refresh currentSharedResume to reflect deleted comment
+      const updatedSharedResume = getSharedResumeById(currentSharedResume.id);
+      if (updatedSharedResume) {
+        setCurrentSharedResume(updatedSharedResume);
+      }
     }
   };
 
@@ -263,9 +286,32 @@ const Pods = () => {
                 <p className="text-sm text-muted-foreground">No comments yet. Be the first to leave feedback!</p>
               ) : (
                 currentSharedResume?.comments.map(comment => (
-                  <div key={comment.id} className="border-b pb-2 last:border-b-0 last:pb-0">
-                    <p className="text-sm font-medium">{comment.authorName} <span className="text-muted-foreground text-xs ml-2">{new Date(comment.createdAt).toLocaleString()}</span></p>
-                    <p className="text-sm">{comment.text}</p>
+                  <div key={comment.id} className="border-b pb-2 last:border-b-0 last:pb-0 flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-medium">{comment.authorName} <span className="text-muted-foreground text-xs ml-2">{new Date(comment.createdAt).toLocaleString()}</span></p>
+                      <p className="text-sm">{comment.text}</p>
+                    </div>
+                    {(currentUser?.id === comment.authorId || currentUser?.id === currentSharedResume?.resumeOwnerId) && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This action cannot be undone. This will permanently delete this comment.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeleteComment(comment.id)}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 ))
               )}
