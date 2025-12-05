@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,11 +21,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import MasterResumeDisplay from "@/components/MasterResumeDisplay";
+import ResumeEditor from "@/components/ResumeEditor"; // Import ResumeEditor
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext";
 import { useAuth } from "@/context/AuthContext";
 import { usePods } from "@/context/PodContext"; // Import usePods
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 // Helper function to generate ATS-compliant plain text resume content
 const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): string => {
@@ -89,15 +91,6 @@ const FirstApplicationWorkflow = () => {
   const [isParsingResume, setIsParsingResume] = useState(false);
 
   const [masterResume, setMasterResume] = useState<ParsedResume | null>(null);
-  const [editedResumeName, setEditedResumeName] = useState("");
-  const [editedResumeEmail, setEditedResumeEmail] = useState("");
-  const [editedResumePhone, setEditedResumePhone] = useState("");
-  const [editedResumeLinkedin, setEditedResumeLinkedin] = useState("");
-  const [editedResumeSummary, setEditedResumeSummary] = useState("");
-  const [editedResumeExperience, setEditedResumeExperience] = useState<Experience[]>([]);
-  const [editedResumeEducation, setEditedResumeEducation] = useState<Education[]>([]);
-  const [editedResumeSkills, setEditedResumeSkills] = useState<Skill[]>([]);
-
   const [versionResume, setVersionResume] = useState<ParsedResume | null>(null);
   const [hasVersionChanges, setHasVersionChanges] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
@@ -112,6 +105,18 @@ const FirstApplicationWorkflow = () => {
   const [showInvitePodDialog, setShowInvitePodDialog] = useState(false);
   const [peerEmailToInvite, setPeerEmailToInvite] = useState("");
   const [selectedPodId, setSelectedPodId] = useState<string | undefined>(undefined);
+
+  // Helper to compare resumes for changes
+  const resumesAreEqual = (res1: ParsedResume | null, res2: ParsedResume | null): boolean => {
+    if (!res1 || !res2) return res1 === res2;
+    return JSON.stringify(res1) === JSON.stringify(res2);
+  };
+
+  useEffect(() => {
+    if (masterResume && versionResume) {
+      setHasVersionChanges(!resumesAreEqual(masterResume, versionResume));
+    }
+  }, [masterResume, versionResume]);
 
 
   const handleParseJd = () => {
@@ -169,42 +174,24 @@ const FirstApplicationWorkflow = () => {
       try {
         const resumeData = await parseResumeFile(uploadedFile);
         setParsedResume(resumeData);
-        setEditedResumeName(resumeData.name);
-        setEditedResumeEmail(resumeData.email);
-        setEditedResumePhone(resumeData.phone);
-        setEditedResumeLinkedin(resumeData.linkedin || "");
-        setEditedResumeSummary(resumeData.summary || "");
-        setEditedResumeExperience(resumeData.experience);
-        setEditedResumeEducation(resumeData.education);
-        setEditedResumeSkills(resumeData.skills);
         setStep(4);
       } catch (error) {
         console.error("Error parsing resume:", error);
-        alert("Failed to parse resume. Please try again.");
+        toast.error("Failed to parse resume. Please try again.");
       } finally {
         setIsParsingResume(false);
       }
     } else {
-      alert("Please select a resume file to upload.");
+      toast.error("Please select a resume file to upload.");
     }
   };
 
   const handleConfirmResume = () => {
     if (parsedResume) {
-      const finalResume: ParsedResume = {
-        name: editedResumeName,
-        email: editedResumeEmail,
-        phone: editedResumePhone,
-        linkedin: editedResumeLinkedin,
-        summary: editedResumeSummary,
-        experience: editedResumeExperience,
-        education: editedResumeEducation,
-        skills: editedResumeSkills,
-      };
-      setMasterResume(finalResume);
+      setMasterResume(parsedResume);
 
       if (parsedJd) {
-        const score = calculateFitScore(finalResume, parsedJd.keywords);
+        const score = calculateFitScore(parsedResume, parsedJd.keywords);
         setFitScore(score);
       }
 
@@ -221,20 +208,13 @@ const FirstApplicationWorkflow = () => {
     }
   };
 
-  const handleVersionSummaryChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (versionResume) {
-      setVersionResume({ ...versionResume, summary: e.target.value });
-      setHasVersionChanges(true);
-    }
-  };
-
   const handleSaveVersionAndContinue = () => {
     setStep(7);
   };
 
   const handleExportResume = (format: 'docx' | 'pdf') => {
     if (!versionResume) {
-      alert("No version resume available to export.");
+      toast.error("No version resume available to export.");
       return;
     }
 
@@ -248,12 +228,12 @@ const FirstApplicationWorkflow = () => {
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
-    alert(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
+    toast.success(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
   };
 
   const handleInviteToPodClick = () => {
     if (!currentUser) {
-      alert("You must be logged in to invite peers to a Pod.");
+      toast.error("You must be logged in to invite peers to a Pod.");
       return;
     }
     setShowInvitePodDialog(true);
@@ -269,7 +249,7 @@ const FirstApplicationWorkflow = () => {
       if (newPod) {
         targetPodId = newPod.id;
       } else {
-        alert("Failed to create a Pod.");
+        toast.error("Failed to create a Pod.");
         return;
       }
     }
@@ -287,7 +267,7 @@ const FirstApplicationWorkflow = () => {
 
   const handleSyncChanges = () => {
     if (masterResume && versionResume) {
-      setMasterResume({ ...masterResume, summary: versionResume.summary });
+      setMasterResume(JSON.parse(JSON.stringify(versionResume))); // Deep copy
     }
     setHasVersionChanges(false);
     setShowSyncPrompt(false);
@@ -325,7 +305,7 @@ const FirstApplicationWorkflow = () => {
 
   const handleFinishWorkflow = async () => {
     await markFirstApplicationComplete();
-    alert("Workflow complete! You can now navigate to other sections.");
+    toast.success("Workflow complete! You can now navigate to other sections.");
     navigate("/");
   };
 
@@ -501,128 +481,10 @@ const FirstApplicationWorkflow = () => {
           {/* Step 4: Review Parsed Resume */}
           {step === 4 && parsedResume && (
             <div className="space-y-6">
-              <h3 className="text-xl font-semibold mb-4">Personal Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="resume-name">Name</Label>
-                  <Input id="resume-name" value={editedResumeName} onChange={(e) => setEditedResumeName(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="resume-email">Email</Label>
-                  <Input id="resume-email" value={editedResumeEmail} onChange={(e) => setEditedResumeEmail(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="resume-phone">Phone</Label>
-                  <Input id="resume-phone" value={editedResumePhone} onChange={(e) => setEditedResumePhone(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="resume-linkedin">LinkedIn (Optional)</Label>
-                  <Input id="resume-linkedin" value={editedResumeLinkedin} onChange={(e) => setEditedResumeLinkedin(e.target.value)} />
-                </div>
-              </div>
-
-              <h3 className="text-xl font-semibold mb-4 mt-6">Summary</h3>
-              <div className="space-y-2">
-                <Label htmlFor="resume-summary">Summary</Label>
-                <Textarea id="resume-summary" value={editedResumeSummary} onChange={(e) => setEditedResumeSummary(e.target.value)} rows={5} />
-              </div>
-
-              <h3 className="text-xl font-semibold mb-4 mt-6">Experience</h3>
-              {editedResumeExperience.map((exp, expIndex) => (
-                <Card key={expIndex} className="p-4 mb-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor={`exp-title-${expIndex}`}>Title</Label>
-                      <Input id={`exp-title-${expIndex}`} value={exp.title} onChange={(e) => {
-                        const newExp = [...editedResumeExperience];
-                        newExp[expIndex].title = e.target.value;
-                        setEditedResumeExperience(newExp);
-                      }} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`exp-company-${expIndex}`}>Company</Label>
-                      <Input id={`exp-company-${expIndex}`} value={exp.company} onChange={(e) => {
-                        const newExp = [...editedResumeExperience];
-                        newExp[expIndex].company = e.target.value;
-                        setEditedResumeExperience(newExp);
-                      }} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`exp-start-${expIndex}`}>Start Date</Label>
-                      <Input id={`exp-start-${expIndex}`} value={exp.startDate} onChange={(e) => {
-                        const newExp = [...editedResumeExperience];
-                        newExp[expIndex].startDate = e.target.value;
-                        setEditedResumeExperience(newExp);
-                      }} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`exp-end-${expIndex}`}>End Date</Label>
-                      <Input id={`exp-end-${expIndex}`} value={exp.endDate} onChange={(e) => {
-                        const newExp = [...editedResumeExperience];
-                        newExp[expIndex].endDate = e.target.value;
-                        setEditedResumeExperience(newExp);
-                      }} />
-                    </div>
-                  </div>
-                  <div className="space-y-2 mt-4">
-                    <Label htmlFor={`exp-desc-${expIndex}`}>Description (one bullet point per line)</Label>
-                    <Textarea id={`exp-desc-${expIndex}`} value={exp.description.join('\n')} onChange={(e) => {
-                      const newExp = [...editedResumeExperience];
-                      newExp[expIndex].description = e.target.value.split('\n');
-                      setEditedResumeExperience(newExp);
-                    }} rows={3} />
-                  </div>
-                </Card>
-              ))}
-              {/* TODO: Add functionality to add/remove experience entries */}
-
-              <h3 className="text-xl font-semibold mb-4 mt-6">Education</h3>
-              {editedResumeEducation.map((edu, eduIndex) => (
-                <Card key={eduIndex} className="p-4 mb-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor={`edu-degree-${eduIndex}`}>Degree</Label>
-                      <Input id={`edu-degree-${eduIndex}`} value={edu.degree} onChange={(e) => {
-                        const newEdu = [...editedResumeEducation];
-                        newEdu[eduIndex].degree = e.target.value;
-                        setEditedResumeEducation(newEdu);
-                      }} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`edu-institution-${eduIndex}`}>Institution</Label>
-                      <Input id={`edu-institution-${eduIndex}`} value={edu.institution} onChange={(e) => {
-                        const newEdu = [...editedResumeEducation];
-                        newEdu[eduIndex].institution = e.target.value;
-                        setEditedResumeEducation(newEdu);
-                      }} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`edu-grad-date-${eduIndex}`}>Graduation Date</Label>
-                      <Input id={`edu-grad-date-${eduIndex}`} value={edu.graduationDate} onChange={(e) => {
-                        const newEdu = [...editedResumeEducation];
-                        newEdu[eduIndex].graduationDate = e.target.value;
-                        setEditedResumeEducation(newEdu);
-                      }} />
-                    </div>
-                  </div>
-                </Card>
-              ))}
-              {/* TODO: Add functionality to add/remove education entries */}
-
-              <h3 className="text-xl font-semibold mb-4 mt-6">Skills</h3>
-              <div className="flex flex-wrap gap-2">
-                {editedResumeSkills.map((skill, skillIndex) => (
-                  <Badge key={skillIndex} variant="secondary" className="flex items-center gap-1">
-                    {skill.name} {skill.level && `(${skill.level})`}
-                    {/* TODO: Add functionality to remove/edit skills */}
-                  </Badge>
-                ))}
-                {/* TODO: Add functionality to add new skills */}
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                (Full editing functionality for resume sections will be added later.)
-              </p>
-
+              <ResumeEditor
+                resume={parsedResume}
+                onChange={setParsedResume}
+              />
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -688,24 +550,15 @@ const FirstApplicationWorkflow = () => {
                 You are now working on a tailored version of your resume.
                 Optimize content, keywords, and structure to match the job description.
               </p>
-              <div className="space-y-2 text-left">
-                <Label htmlFor="version-summary">Version Summary (Mock Edit)</Label>
-                <Textarea
-                  id="version-summary"
-                  value={versionResume.summary || ""}
-                  onChange={handleVersionSummaryChange}
-                  rows={5}
-                  placeholder="Edit your summary for this specific job application..."
-                />
-                {hasVersionChanges && (
-                  <p className="text-sm text-orange-500">
-                    Changes detected! These changes can be synced to your Master Resume later.
-                  </p>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                (Full tailoring functionality, including keyword fit score and content suggestions, will be implemented in future steps.)
-              </p>
+              <ResumeEditor
+                resume={versionResume}
+                onChange={setVersionResume}
+              />
+              {hasVersionChanges && (
+                <p className="text-sm text-orange-500">
+                  Changes detected! These changes can be synced to your Master Resume later.
+                </p>
+              )}
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
