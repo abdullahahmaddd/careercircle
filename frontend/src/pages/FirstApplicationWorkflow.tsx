@@ -21,11 +21,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import MasterResumeDisplay from "@/components/MasterResumeDisplay";
-import ResumeEditor from "@/components/ResumeEditor"; // Import ResumeEditor
+import ResumeEditor from "@/components/ResumeEditor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext";
 import { useAuth } from "@/context/AuthContext";
-import { usePods } from "@/context/PodContext"; // Import usePods
+import { usePods } from "@/context/PodContext";
+import { useResumes } from "@/context/ResumeContext"; // Import useResumes
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -74,7 +75,8 @@ const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): 
 const FirstApplicationWorkflow = () => {
   const { playlists, addJobEntry, updateJobEntryStatus } = usePlaylists();
   const { currentUser, markFirstApplicationComplete } = useAuth();
-  const { createPod, shareResumeInPod, invitePeerToPod, pods } = usePods(); // Use usePods
+  const { createPod, shareResumeInPod, invitePeerToPod, pods } = usePods();
+  const { masterResume, versionResumes, saveMasterResume, updateMasterResumeContent, createVersionResume, updateVersionResumeContent } = useResumes(); // Use useResumes
   const navigate = useNavigate();
   const defaultPlaylistId = playlists[0]?.id || 'default-playlist';
 
@@ -87,13 +89,10 @@ const FirstApplicationWorkflow = () => {
   const [fitScore, setFitScore] = useState(0);
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [parsedResume, setParsedResume] = useState<ParsedResume | null>(null);
   const [isParsingResume, setIsParsingResume] = useState(false);
 
-  const [masterResume, setMasterResume] = useState<ParsedResume | null>(null);
-  const [versionResume, setVersionResume] = useState<ParsedResume | null>(null);
-  const [hasVersionChanges, setHasVersionChanges] = useState(false);
-  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
+  const [currentEditedMasterContent, setCurrentEditedMasterContent] = useState<ParsedResume | null>(null); // For editing parsed resume before saving as master
+  const [currentEditedVersionContent, setCurrentEditedVersionContent] = useState<ParsedResume | null>(null); // For editing version resume
 
   const [currentWorkflowJobEntry, setCurrentWorkflowJobEntry] = useState<JobEntry | null>(null);
   const [applicationDeadline, setApplicationDeadline] = useState("");
@@ -106,17 +105,41 @@ const FirstApplicationWorkflow = () => {
   const [peerEmailToInvite, setPeerEmailToInvite] = useState("");
   const [selectedPodId, setSelectedPodId] = useState<string | undefined>(undefined);
 
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
+  const [versionResumeIdForSync, setVersionResumeIdForSync] = useState<string | null>(null);
+
   // Helper to compare resumes for changes
   const resumesAreEqual = (res1: ParsedResume | null, res2: ParsedResume | null): boolean => {
     if (!res1 || !res2) return res1 === res2;
     return JSON.stringify(res1) === JSON.stringify(res2);
   };
 
+  // Effect to update fit score when masterResume or parsedJd changes
   useEffect(() => {
-    if (masterResume && versionResume) {
-      setHasVersionChanges(!resumesAreEqual(masterResume, versionResume));
+    if (masterResume && parsedJd) {
+      const score = calculateFitScore(masterResume.content, parsedJd.keywords);
+      setFitScore(score);
+    } else {
+      setFitScore(0);
     }
-  }, [masterResume, versionResume]);
+  }, [masterResume, parsedJd]);
+
+  // Effect to set currentEditedMasterContent when parsedResume is available
+  useEffect(() => {
+    if (masterResume) {
+      setCurrentEditedMasterContent(masterResume.content);
+    }
+  }, [masterResume]);
+
+  // Effect to set currentEditedVersionContent when a version is generated
+  useEffect(() => {
+    if (versionResumes.length > 0 && step === 6) {
+      // Assuming the latest created version is the one we're working on in the workflow
+      const latestVersion = versionResumes[versionResumes.length - 1];
+      setCurrentEditedVersionContent(latestVersion.content);
+      setVersionResumeIdForSync(latestVersion.id);
+    }
+  }, [versionResumes, step]);
 
 
   const handleParseJd = () => {
@@ -169,11 +192,15 @@ const FirstApplicationWorkflow = () => {
   };
 
   const handleUploadResume = async () => {
+    if (!currentUser) {
+      toast.error("You must be logged in to upload a resume.");
+      return;
+    }
     if (uploadedFile) {
       setIsParsingResume(true);
       try {
         const resumeData = await parseResumeFile(uploadedFile);
-        setParsedResume(resumeData);
+        setCurrentEditedMasterContent(resumeData); // Set to local state for editing before saving
         setStep(4);
       } catch (error) {
         console.error("Error parsing resume:", error);
@@ -186,40 +213,48 @@ const FirstApplicationWorkflow = () => {
     }
   };
 
-  const handleConfirmResume = () => {
-    if (parsedResume) {
-      setMasterResume(parsedResume);
+  const handleConfirmResume = async () => {
+    if (!currentUser || !currentEditedMasterContent) return;
 
-      if (parsedJd) {
-        const score = calculateFitScore(parsedResume, parsedJd.keywords);
-        setFitScore(score);
-      }
-
-      setStep(5);
+    if (masterResume) {
+      await updateMasterResumeContent(currentUser.id, currentEditedMasterContent);
+    } else {
+      await saveMasterResume(currentUser.id, currentEditedMasterContent);
     }
+    setStep(5);
   };
 
-  const handleGenerateVersionResume = () => {
-    if (masterResume) {
-      const newVersion = JSON.parse(JSON.stringify(masterResume));
-      setVersionResume(newVersion);
-      setHasVersionChanges(false);
+  const handleGenerateVersionResume = async () => {
+    if (!currentUser || !masterResume) {
+      toast.error("Master Resume must exist to create a version.");
+      return;
+    }
+    const versionName = `${editedRole || "Tailored"} Version`;
+    const newVersion = await createVersionResume(currentUser.id, masterResume.id, versionName, JSON.parse(JSON.stringify(masterResume.content)));
+    if (newVersion) {
+      setCurrentEditedVersionContent(newVersion.content);
+      setVersionResumeIdForSync(newVersion.id);
       setStep(6);
     }
   };
 
-  const handleSaveVersionAndContinue = () => {
+  const handleSaveVersionAndContinue = async () => {
+    if (!currentUser || !currentEditedVersionContent || !versionResumeIdForSync) return;
+
+    // Save the current edits to the actual version resume in context
+    await updateVersionResumeContent(versionResumeIdForSync, currentEditedVersionContent);
+
     setStep(7);
   };
 
   const handleExportResume = (format: 'docx' | 'pdf') => {
-    if (!versionResume) {
+    if (!currentEditedVersionContent) {
       toast.error("No version resume available to export.");
       return;
     }
 
-    const resumeTextContent = generateAtsCompliantTextResume(versionResume, editedRole);
-    const filename = `${versionResume.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`;
+    const resumeTextContent = generateAtsCompliantTextResume(currentEditedVersionContent, editedRole);
+    const filename = `${currentEditedVersionContent.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`;
 
     const element = document.createElement("a");
     const file = new Blob([resumeTextContent], { type: "text/plain" });
@@ -228,7 +263,7 @@ const FirstApplicationWorkflow = () => {
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
-    toast.success(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
+    toast.success(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${currentEditedVersionContent.name}.`);
   };
 
   const handleInviteToPodClick = () => {
@@ -240,7 +275,7 @@ const FirstApplicationWorkflow = () => {
   };
 
   const handleInvitePeerAndShare = async () => {
-    if (!currentUser || !versionResume) return;
+    if (!currentUser || !currentEditedVersionContent || !versionResumeIdForSync) return;
 
     let targetPodId = selectedPodId;
     if (!targetPodId) {
@@ -258,24 +293,28 @@ const FirstApplicationWorkflow = () => {
       if (peerEmailToInvite) {
         await invitePeerToPod(targetPodId, peerEmailToInvite);
       }
-      await shareResumeInPod(targetPodId, currentUser.id, currentUser.name, versionResume);
+      await shareResumeInPod(targetPodId, currentUser.id, currentUser.name, currentEditedVersionContent);
       setShowInvitePodDialog(false);
       setPeerEmailToInvite("");
       setSelectedPodId(undefined);
     }
   };
 
-  const handleSyncChanges = () => {
-    if (masterResume && versionResume) {
-      setMasterResume(JSON.parse(JSON.stringify(versionResume))); // Deep copy
-    }
-    setHasVersionChanges(false);
+  const handleSyncChanges = async () => {
+    if (!currentUser || !masterResume || !currentEditedVersionContent || !versionResumeIdForSync) return;
+
+    // Update the version resume in context first
+    await updateVersionResumeContent(versionResumeIdForSync, currentEditedVersionContent);
+    // Then sync that version's content to master
+    // The syncVersionToMaster function in ResumeContext already handles updating masterResume state
+    // and saving to local storage.
+    await updateMasterResumeContent(currentUser.id, currentEditedVersionContent);
+
     setShowSyncPrompt(false);
     setStep(5);
   };
 
   const handleDiscardChanges = () => {
-    setHasVersionChanges(false);
     setShowSyncPrompt(false);
     setStep(5);
   };
@@ -285,7 +324,11 @@ const FirstApplicationWorkflow = () => {
     else if (step === 3) setStep(2);
     else if (step === 4) setStep(3);
     else if (step === 5) {
-      if (hasVersionChanges) {
+      // Check if the current version resume has changes compared to the master
+      const currentVersionInContext = versionResumes.find(v => v.id === versionResumeIdForSync);
+      const hasChanges = currentVersionInContext && masterResume && !resumesAreEqual(currentVersionInContext.content, masterResume.content);
+
+      if (hasChanges) {
         setShowSyncPrompt(true);
       } else {
         setStep(4);
@@ -308,6 +351,8 @@ const FirstApplicationWorkflow = () => {
     toast.success("Workflow complete! You can now navigate to other sections.");
     navigate("/");
   };
+
+  const hasVersionChanges = currentEditedVersionContent && masterResume && !resumesAreEqual(currentEditedVersionContent, masterResume.content);
 
   return (
     <div className="flex flex-col items-center justify-center p-4">
@@ -479,11 +524,11 @@ const FirstApplicationWorkflow = () => {
           )}
 
           {/* Step 4: Review Parsed Resume */}
-          {step === 4 && parsedResume && (
+          {step === 4 && currentEditedMasterContent && (
             <div className="space-y-6">
               <ResumeEditor
-                resume={parsedResume}
-                onChange={setParsedResume}
+                resume={currentEditedMasterContent}
+                onChange={setCurrentEditedMasterContent}
               />
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
@@ -504,7 +549,7 @@ const FirstApplicationWorkflow = () => {
                 Your Master Resume is now the single source of truth for your professional experience.
                 Keywords from the job description are highlighted below, and a Fit Score is calculated.
               </p>
-              <MasterResumeDisplay resume={masterResume} jobDescription={parsedJd} fitScore={fitScore} />
+              <MasterResumeDisplay resume={masterResume.content} jobDescription={parsedJd} fitScore={fitScore} />
               {currentWorkflowJobEntry && (
                 <Card className="p-4 border-l-4 border-primary">
                   <CardTitle className="text-lg flex items-center gap-2 mb-2">
@@ -542,7 +587,7 @@ const FirstApplicationWorkflow = () => {
           )}
 
           {/* Step 6: Version Resume Tailoring */}
-          {step === 6 && versionResume && (
+          {step === 6 && currentEditedVersionContent && (
             <div className="space-y-6 text-center">
               <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
               <h3 className="text-2xl font-semibold">Version Resume Tailoring for "{editedRole}"</h3>
@@ -551,8 +596,8 @@ const FirstApplicationWorkflow = () => {
                 Optimize content, keywords, and structure to match the job description.
               </p>
               <ResumeEditor
-                resume={versionResume}
-                onChange={setVersionResume}
+                resume={currentEditedVersionContent}
+                onChange={setCurrentEditedVersionContent}
               />
               {hasVersionChanges && (
                 <p className="text-sm text-orange-500">
@@ -667,7 +712,7 @@ const FirstApplicationWorkflow = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleInvitePeerAndShare} disabled={!currentUser || !versionResume}>
+            <AlertDialogAction onClick={handleInvitePeerAndShare} disabled={!currentUser || !currentEditedVersionContent}>
               Invite & Share
             </AlertDialogAction>
           </AlertDialogFooter>
