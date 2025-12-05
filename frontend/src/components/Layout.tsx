@@ -12,6 +12,7 @@ import { Menu, Home, FileText, List, Users, Settings, LogIn, LogOut, User as Use
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip components
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: Home, requiresAuth: false },
@@ -94,6 +95,33 @@ const Layout = () => {
           <div className="mb-6 text-2xl font-bold text-sidebar-primary text-center">
             {isSidebarOpen ? "CareerCircle" : "CC"}
           </div>
+
+          {isAuthenticated && currentUser && (
+            <Link to="/settings" className={cn(
+              "flex items-center mb-6 p-2 rounded-md hover:bg-sidebar-accent transition-colors",
+              isSidebarOpen ? "justify-start" : "justify-center"
+            )}>
+              {isSidebarOpen ? (
+                <div className="flex items-center">
+                  <UserIcon className="h-6 w-6 mr-3 text-sidebar-foreground" />
+                  <div>
+                    <p className="text-sm font-medium text-sidebar-foreground">{currentUser.name}</p>
+                    <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                  </div>
+                </div>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <UserIcon className="h-6 w-6 text-sidebar-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {currentUser.name}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </Link>
+          )}
+
           <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={isSidebarOpen} />
           <div className="mt-auto pt-4 border-t border-sidebar-border w-full">
             <Button
@@ -119,15 +147,24 @@ const Layout = () => {
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
                 <div className="mb-6 text-2xl font-bold text-sidebar-primary">CareerCircle</div>
+                {isAuthenticated && currentUser && (
+                  <Link to="/settings" className="flex items-center mb-6 p-2 rounded-md hover:bg-sidebar-accent transition-colors">
+                    <UserIcon className="h-6 w-6 mr-3 text-sidebar-foreground" />
+                    <div>
+                      <p className="text-sm font-medium text-sidebar-foreground">{currentUser.name}</p>
+                      <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                    </div>
+                  </Link>
+                )}
                 <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={true} /> {/* Mobile sidebar always open */}
               </SheetContent>
             </Sheet>
             <div className="text-xl font-bold text-sidebar-primary">CareerCircle</div>
             {isAuthenticated && currentUser && (
-              <div className="flex items-center gap-2 text-sidebar-foreground">
+              <Link to="/settings" className="flex items-center gap-2 text-sidebar-foreground hover:text-sidebar-primary transition-colors">
                 <UserIcon className="h-5 w-5" />
                 <span className="text-sm font-medium">{currentUser.name.split(' ')[0]}</span>
-              </div>
+              </Link>
             )}
           </header>
         )}
