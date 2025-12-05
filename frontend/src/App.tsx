@@ -12,10 +12,11 @@ import Settings from "./pages/Settings";
 import FirstApplicationWorkflow from "./pages/FirstApplicationWorkflow";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
+import CoverLetter from "./pages/CoverLetter"; // Import CoverLetter
 import { PlaylistProvider } from "./context/PlaylistContext";
 import { AuthProvider } from "./context/AuthContext";
 import { PodProvider } from "./context/PodContext";
-import { ResumeProvider } from "./context/ResumeContext"; // Import ResumeProvider
+import { ResumeProvider } from "./context/ResumeContext";
 
 const queryClient = new QueryClient();
 
@@ -28,7 +29,7 @@ const App = () => (
         <AuthProvider>
           <PlaylistProvider>
             <PodProvider>
-              <ResumeProvider> {/* Wrap with ResumeProvider */}
+              <ResumeProvider>
                 <Routes>
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Dashboard />} />
@@ -37,6 +38,7 @@ const App = () => (
                     <Route path="pods" element={<Pods />} />
                     <Route path="settings" element={<Settings />} />
                     <Route path="first-application" element={<FirstApplicationWorkflow />} />
+                    <Route path="cover-letter" element={<CoverLetter />} /> {/* New route */}
                     <Route path="auth" element={<Auth />} />
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                     <Route path="*" element={<NotFound />} />

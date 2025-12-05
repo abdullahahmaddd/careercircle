@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Resume, useResumes } from "@/context/ResumeContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Edit, GitMerge, Trash2, Eye } from "lucide-react";
+import { FileText, Edit, GitMerge, Trash2, Eye, Mail } from "lucide-react"; // Import Mail icon
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +29,7 @@ import ResumeEditor from "./ResumeEditor";
 import MasterResumeDisplay from "./MasterResumeDisplay";
 import { toast } from "sonner";
 import { ParsedResume } from "@/utils/resumeParser";
+import { Link } from "react-router-dom"; // Import Link
 
 interface VersionResumeCardProps {
   versionResume: Resume;
@@ -109,7 +110,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
             <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Edit: {versionResume.name}</DialogTitle>
-                <DialogDescription>Make changes to this tailored resume version.</DialogDescription>
+                <DialogDescription>Make changes to this tailored resume version.</CardDescription>
               </DialogHeader>
               <ResumeEditor resume={editedVersionContent} onChange={setEditedVersionContent} />
               <DialogFooter>
@@ -138,6 +139,12 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          <Button asChild variant="outline" size="sm" className="flex-1 md:flex-none">
+            <Link to={`/cover-letter?resumeId=${versionResume.id}`}>
+              <Mail className="mr-2 h-4 w-4" /> Generate Cover Letter
+            </Link>
+          </Button>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
