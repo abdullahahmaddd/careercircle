@@ -11,9 +11,10 @@ import Pods from "./pages/Pods";
 import Settings from "./pages/Settings";
 import FirstApplicationWorkflow from "./pages/FirstApplicationWorkflow";
 import NotFound from "./pages/NotFound";
-import Auth from "./pages/Auth"; // Import the new Auth page
+import Auth from "./pages/Auth";
 import { PlaylistProvider } from "./context/PlaylistContext";
-import { AuthProvider } from "./context/AuthContext"; // Import AuthProvider
+import { AuthProvider } from "./context/AuthContext";
+import { PodProvider } from "./context/PodContext"; // Import PodProvider
 
 const queryClient = new QueryClient();
 
@@ -23,21 +24,23 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AuthProvider> {/* Wrap with AuthProvider */}
+        <AuthProvider>
           <PlaylistProvider>
-            <Routes>
-              <Route path="/" element={<Layout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="resumes" element={<Resumes />} />
-                <Route path="playlists" element={<Playlists />} />
-                <Route path="pods" element={<Pods />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="first-application" element={<FirstApplicationWorkflow />} />
-                <Route path="auth" element={<Auth />} /> {/* Add Auth route */}
-                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
+            <PodProvider> {/* Wrap with PodProvider */}
+              <Routes>
+                <Route path="/" element={<Layout />}>
+                  <Route index element={<Dashboard />} />
+                  <Route path="resumes" element={<Resumes />} />
+                  <Route path="playlists" element={<Playlists />} />
+                  <Route path="pods" element={<Pods />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="first-application" element={<FirstApplicationWorkflow />} />
+                  <Route path="auth" element={<Auth />} />
+                  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                  <Route path="*" element={<NotFound />} />
+                </Route>
+              </Routes>
+            </PodProvider>
           </PlaylistProvider>
         </AuthProvider>
       </BrowserRouter>

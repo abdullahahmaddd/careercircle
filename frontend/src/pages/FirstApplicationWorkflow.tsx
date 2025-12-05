@@ -22,7 +22,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import MasterResumeDisplay from "@/components/MasterResumeDisplay";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext"; // Import usePlaylists and types
+import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext";
+import { useAuth } from "@/context/AuthContext";
+import { usePods } from "@/context/PodContext"; // Import usePods
+import { useNavigate } from "react-router-dom";
 
 // Helper function to generate ATS-compliant plain text resume content
 const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): string => {
@@ -56,7 +59,7 @@ const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): 
       text += `- ${edu.degree}, ${edu.institution} (Graduation: ${edu.graduationDate})\n`;
     });
     text += `\n`;
-  }
+  });
 
   if (resume.skills.length > 0) {
     text += `Skills:\n`;
@@ -68,7 +71,10 @@ const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): 
 
 const FirstApplicationWorkflow = () => {
   const { playlists, addJobEntry, updateJobEntryStatus } = usePlaylists();
-  const defaultPlaylistId = playlists[0]?.id || 'default-playlist'; // Assuming the first playlist is the default
+  const { currentUser, markFirstApplicationComplete } = useAuth();
+  const { createPod, shareResumeInPod, invitePeerToPod, pods } = usePods(); // Use usePods
+  const navigate = useNavigate();
+  const defaultPlaylistId = playlists[0]?.id || 'default-playlist';
 
   const [step, setStep] = useState(1);
   const [jobDescription, setJobDescription] = useState("");
@@ -96,13 +102,16 @@ const FirstApplicationWorkflow = () => {
   const [hasVersionChanges, setHasVersionChanges] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
 
-  // Job Entry specific states for the workflow
   const [currentWorkflowJobEntry, setCurrentWorkflowJobEntry] = useState<JobEntry | null>(null);
   const [applicationDeadline, setApplicationDeadline] = useState("");
   const [jobEntryStatus, setJobEntryStatus] = useState<JobEntryStatus>('Not started');
-  const [salaryRange, setSalaryRange] = useState(""); // Nice-to-have
-  const [location, setLocation] = useState(""); // Nice-to-have
-  const [source, setSource] = useState(""); // Nice-to-have
+  const [salaryRange, setSalaryRange] = useState("");
+  const [location, setLocation] = useState("");
+  const [source, setSource] = useState("");
+
+  const [showInvitePodDialog, setShowInvitePodDialog] = useState(false);
+  const [peerEmailToInvite, setPeerEmailToInvite] = useState("");
+  const [selectedPodId, setSelectedPodId] = useState<string | undefined>(undefined);
 
 
   const handleParseJd = () => {
@@ -137,7 +146,6 @@ const FirstApplicationWorkflow = () => {
       };
 
       addJobEntry(defaultPlaylistId, newJobEntry);
-      // Find the newly added job entry to set as currentWorkflowJobEntry
       const updatedPlaylist = playlists.find(p => p.id === defaultPlaylistId);
       const latestJobEntry = updatedPlaylist?.jobEntries[updatedPlaylist.jobEntries.length - 1];
       if (latestJobEntry) {
@@ -243,8 +251,38 @@ const FirstApplicationWorkflow = () => {
     alert(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
   };
 
-  const handleInviteToPod = () => {
-    alert("Mock: Inviting peers to your Pod! (Email invitations would be sent) (FR-007)");
+  const handleInviteToPodClick = () => {
+    if (!currentUser) {
+      alert("You must be logged in to invite peers to a Pod.");
+      return;
+    }
+    setShowInvitePodDialog(true);
+  };
+
+  const handleInvitePeerAndShare = async () => {
+    if (!currentUser || !versionResume) return;
+
+    let targetPodId = selectedPodId;
+    if (!targetPodId) {
+      // If no pod selected, create a default one for the user
+      const newPod = await createPod(`${currentUser.name}'s CareerCircle`, currentUser.id, currentUser.name, currentUser.email);
+      if (newPod) {
+        targetPodId = newPod.id;
+      } else {
+        alert("Failed to create a Pod.");
+        return;
+      }
+    }
+
+    if (targetPodId) {
+      if (peerEmailToInvite) {
+        await invitePeerToPod(targetPodId, peerEmailToInvite);
+      }
+      await shareResumeInPod(targetPodId, currentUser.id, currentUser.name, versionResume);
+      setShowInvitePodDialog(false);
+      setPeerEmailToInvite("");
+      setSelectedPodId(undefined);
+    }
   };
 
   const handleSyncChanges = () => {
@@ -283,6 +321,12 @@ const FirstApplicationWorkflow = () => {
       updateJobEntryStatus(defaultPlaylistId, currentWorkflowJobEntry.id, value);
       setCurrentWorkflowJobEntry(prev => prev ? { ...prev, status: value } : null);
     }
+  };
+
+  const handleFinishWorkflow = async () => {
+    await markFirstApplicationComplete();
+    alert("Workflow complete! You can now navigate to other sections.");
+    navigate("/");
   };
 
   return (
@@ -698,7 +742,7 @@ const FirstApplicationWorkflow = () => {
                 <p className="text-muted-foreground">
                   Share this version with your CareerCircle for constructive criticism.
                 </p>
-                <Button variant="secondary" onClick={handleInviteToPod}>
+                <Button variant="secondary" onClick={handleInviteToPodClick}>
                   <Share2 className="mr-2 h-4 w-4" /> Invite Peers to Pod
                 </Button>
               </div>
@@ -706,7 +750,7 @@ const FirstApplicationWorkflow = () => {
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
-                <Button onClick={() => alert("Workflow complete! You can now navigate to other sections.")}>
+                <Button onClick={handleFinishWorkflow}>
                   Finish Workflow <CheckCircle2 className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -727,6 +771,52 @@ const FirstApplicationWorkflow = () => {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleDiscardChanges}>Discard Changes</AlertDialogCancel>
             <AlertDialogAction onClick={handleSyncChanges}>Apply Changes to Master</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Invite to Pod Dialog */}
+      <AlertDialog open={showInvitePodDialog} onOpenChange={setShowInvitePodDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Share Resume with a Pod</AlertDialogTitle>
+            <AlertDialogDescription>
+              Invite a peer to your CareerCircle Pod and share your current resume version for feedback.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="pod-select">Select an existing Pod or a new one will be created</Label>
+              <Select value={selectedPodId} onValueChange={setSelectedPodId}>
+                <SelectTrigger id="pod-select">
+                  <SelectValue placeholder="Select a Pod" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pods.filter(pod => pod.ownerId === currentUser?.id).map(pod => (
+                    <SelectItem key={pod.id} value={pod.id}>{pod.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="peer-email">Peer's Email (Optional)</Label>
+              <Input
+                id="peer-email"
+                type="email"
+                placeholder="peer@example.com"
+                value={peerEmailToInvite}
+                onChange={(e) => setPeerEmailToInvite(e.target.value)}
+              />
+              <p className="text-sm text-muted-foreground">
+                If the peer doesn't have an account, a mock invitation will be sent.
+              </p>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleInvitePeerAndShare} disabled={!currentUser || !versionResume}>
+              Invite & Share
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

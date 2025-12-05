@@ -1,14 +1,21 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Rocket } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
 
 const Dashboard = () => {
   const { isAuthenticated, currentUser } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated && currentUser && !currentUser.hasCompletedFirstApplication) {
+      navigate("/first-application");
+    }
+  }, [isAuthenticated, currentUser, navigate]);
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-4">
@@ -23,10 +30,16 @@ const Dashboard = () => {
         <p className="text-md text-muted-foreground mb-8">
           Ready to supercharge your job search? Let's get started with your first application!
         </p>
-        {isAuthenticated ? (
+        {isAuthenticated && currentUser && !currentUser.hasCompletedFirstApplication ? (
           <Button size="lg" asChild>
             <Link to="/first-application">
-              <span>Start Your First Application</span>
+              <span>Continue First Application</span>
+            </Link>
+          </Button>
+        ) : isAuthenticated ? (
+          <Button size="lg" asChild>
+            <Link to="/resumes">
+              <span>Go to Resumes</span>
             </Link>
           </Button>
         ) : (

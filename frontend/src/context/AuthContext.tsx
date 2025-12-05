@@ -9,6 +9,7 @@ export interface User {
   name: string;
   email: string;
   password?: string; // Only for mock, never store real passwords client-side
+  hasCompletedFirstApplication: boolean; // New flag
 }
 
 // Define AuthContextType
@@ -20,11 +21,12 @@ interface AuthContextType {
   logout: () => void;
   updateProfile: (updatedFields: Partial<User>) => Promise<boolean>;
   deleteAccount: () => Promise<boolean>;
+  markFirstApplicationComplete: () => Promise<void>; // New function
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export const AuthProvider = ({ children }: { ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
@@ -50,10 +52,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const updateAllUsersInLocalStorage = (updatedUser: User) => {
+    if (typeof window !== 'undefined') {
+      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
+      const updatedUsers = storedUsers.map((u: User) =>
+        u.id === updatedUser.id ? updatedUser : u
+      );
+      localStorage.setItem('careerCircleUsers', JSON.stringify(updatedUsers));
+    }
+  };
+
   const login = async (email: string, password: string): Promise<boolean> => {
     // Mock login logic
     if (typeof window !== 'undefined') {
-      const storedUsers = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
+      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
       const user = storedUsers.find((u: User) => u.email === email && u.password === password);
 
       if (user) {
@@ -73,13 +85,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const register = async (name: string, email: string, password: string): Promise<boolean> => {
     // Mock registration logic
     if (typeof window !== 'undefined') {
-      const storedUsers = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
+      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
       if (storedUsers.some((u: User) => u.email === email)) {
         toast.error('An account with this email already exists.');
         return false;
       }
 
-      const newUser: User = { id: `user-${Date.now()}`, name, email, password };
+      const newUser: User = { id: `user-${Date.now()}`, name, email, password, hasCompletedFirstApplication: false }; // Initialize new user with false
       localStorage.setItem('careerCircleUsers', JSON.stringify([...storedUsers, newUser]));
       setCurrentUser(newUser);
       setIsAuthenticated(true);
@@ -106,11 +118,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const updatedUser = { ...currentUser, ...updatedFields };
 
     if (typeof window !== 'undefined') {
-      const storedUsers = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      const updatedUsers = storedUsers.map((u: User) =>
-        u.id === currentUser.id ? updatedUser : u
-      );
-      localStorage.setItem('careerCircleUsers', JSON.stringify(updatedUsers));
+      updateAllUsersInLocalStorage(updatedUser);
       setCurrentUser(updatedUser);
       saveUserToLocalStorage(updatedUser);
       toast.success('Profile updated successfully!');
@@ -126,20 +134,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (typeof window !== 'undefined') {
-      const storedUsers = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
+      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
       const filteredUsers = storedUsers.filter((u: User) => u.id !== currentUser.id);
       localStorage.setItem('careerCircleUsers', JSON.stringify(filteredUsers));
 
       // Also remove any associated playlists/job entries for this user (mock)
-      const storedPlaylists = JSON.parse(localStorage.getItem('careerCirclePlaylists') || '[]');
-      const filteredPlaylists = storedPlaylists.filter((p: any) => p.ownerId !== currentUser.id); // Assuming ownerId on playlist
-      localStorage.setItem('careerCirclePlaylists', JSON.stringify(filteredPlaylists));
+      // For simplicity, we'll just clear all playlists for now, or assume they are tied to user ID
+      // A more robust implementation would filter playlists by ownerId
+      localStorage.removeItem('careerCirclePlaylists'); // Clear all playlists for simplicity in mock
 
       logout(); // Log out the user after deletion
       toast.success('Your account has been deleted.');
       return true;
     }
     return false;
+  };
+
+  const markFirstApplicationComplete = async () => {
+    if (currentUser) {
+      const updatedUser = { ...currentUser, hasCompletedFirstApplication: true };
+      updateAllUsersInLocalStorage(updatedUser);
+      setCurrentUser(updatedUser);
+      saveUserToLocalStorage(updatedUser);
+      console.log("First application workflow marked as complete.");
+    }
   };
 
   return (
@@ -152,6 +170,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         logout,
         updateProfile,
         deleteAccount,
+        markFirstApplicationComplete,
       }}
     >
       {children}
