@@ -110,7 +110,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
             <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Edit: {versionResume.name}</DialogTitle>
-                <DialogDescription>Make changes to this tailored resume version.</CardDescription>
+                <DialogDescription>Make changes to this tailored resume version.</DialogDescription>
               </DialogHeader>
               <ResumeEditor resume={editedVersionContent} onChange={setEditedVersionContent} />
               <DialogFooter>
