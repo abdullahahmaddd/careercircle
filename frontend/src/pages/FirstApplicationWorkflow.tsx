@@ -20,8 +20,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import MasterResumeDisplay from "@/components/MasterResumeDisplay"; // Import the new component
+import MasterResumeDisplay from "@/components/MasterResumeDisplay";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext"; // Import usePlaylists and types
 
 // Helper function to generate ATS-compliant plain text resume content
 const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): string => {
@@ -65,24 +66,11 @@ const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): 
   return text;
 };
 
-// Mock Job Entry and Playlist types for in-memory state
-interface JobEntry {
-  id: string;
-  roleTitle: string;
-  applicationDeadline: string;
-  status: 'Not started' | 'Draft ready' | 'Applied' | 'Interviewing' | 'Offer';
-  jdText: string;
-  parsedJd: ParsedJobDescription;
-}
-
-interface Playlist {
-  id: string;
-  name: string;
-  jobEntries: JobEntry[];
-}
-
 const FirstApplicationWorkflow = () => {
-  const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring, 7: Export & Share
+  const { playlists, addJobEntry, updateJobEntryStatus } = usePlaylists();
+  const defaultPlaylistId = playlists[0]?.id || 'default-playlist'; // Assuming the first playlist is the default
+
+  const [step, setStep] = useState(1);
   const [jobDescription, setJobDescription] = useState("");
   const [parsedJd, setParsedJd] = useState<ParsedJobDescription | null>(null);
   const [editedRole, setEditedRole] = useState("");
@@ -94,7 +82,6 @@ const FirstApplicationWorkflow = () => {
   const [parsedResume, setParsedResume] = useState<ParsedResume | null>(null);
   const [isParsingResume, setIsParsingResume] = useState(false);
 
-  // State for editable resume fields (Master Resume)
   const [masterResume, setMasterResume] = useState<ParsedResume | null>(null);
   const [editedResumeName, setEditedResumeName] = useState("");
   const [editedResumeEmail, setEditedResumeEmail] = useState("");
@@ -105,18 +92,17 @@ const FirstApplicationWorkflow = () => {
   const [editedResumeEducation, setEditedResumeEducation] = useState<Education[]>([]);
   const [editedResumeSkills, setEditedResumeSkills] = useState<Skill[]>([]);
 
-  // State for Version Resume
   const [versionResume, setVersionResume] = useState<ParsedResume | null>(null);
   const [hasVersionChanges, setHasVersionChanges] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
 
-  // Mock Playlist State (FR-006)
-  const [playlists, setPlaylists] = useState<Playlist[]>([
-    { id: "playlist-1", name: "My First Applications", jobEntries: [] },
-  ]);
-  const [currentJobEntry, setCurrentJobEntry] = useState<JobEntry | null>(null);
-  const [jobEntryStatus, setJobEntryStatus] = useState<JobEntry['status']>('Not started');
+  // Job Entry specific states for the workflow
+  const [currentWorkflowJobEntry, setCurrentWorkflowJobEntry] = useState<JobEntry | null>(null);
   const [applicationDeadline, setApplicationDeadline] = useState("");
+  const [jobEntryStatus, setJobEntryStatus] = useState<JobEntryStatus>('Not started');
+  const [salaryRange, setSalaryRange] = useState(""); // Nice-to-have
+  const [location, setLocation] = useState(""); // Nice-to-have
+  const [source, setSource] = useState(""); // Nice-to-have
 
 
   const handleParseJd = () => {
@@ -126,7 +112,7 @@ const FirstApplicationWorkflow = () => {
       setEditedRole(result.role);
       setEditedDomain(result.domain);
       setEditedKeywords(result.keywords);
-      setStep(2); // Move to review JD step
+      setStep(2);
     }
   };
 
@@ -138,29 +124,28 @@ const FirstApplicationWorkflow = () => {
         domain: editedDomain,
         keywords: editedKeywords,
       };
-      console.log("Confirmed JD:", finalJd);
 
-      // Create and save Job Entry to a mock playlist (FR-006)
-      const newJobEntry: JobEntry = {
-        id: `job-${Date.now()}`,
+      const newJobEntry: Omit<JobEntry, 'id' | 'createdAt'> = {
         roleTitle: finalJd.role,
-        applicationDeadline: applicationDeadline || "N/A", // Use input or default
+        applicationDeadline: applicationDeadline || "N/A",
         status: 'Not started',
         jdText: jobDescription,
         parsedJd: finalJd,
+        salaryRange,
+        location,
+        source,
       };
-      setCurrentJobEntry(newJobEntry);
-      setJobEntryStatus(newJobEntry.status); // Initialize status for display
 
-      setPlaylists(prev => {
-        const firstPlaylist = prev[0];
-        if (firstPlaylist) {
-          return [{ ...firstPlaylist, jobEntries: [...firstPlaylist.jobEntries, newJobEntry] }, ...prev.slice(1)];
-        }
-        return prev;
-      });
+      addJobEntry(defaultPlaylistId, newJobEntry);
+      // Find the newly added job entry to set as currentWorkflowJobEntry
+      const updatedPlaylist = playlists.find(p => p.id === defaultPlaylistId);
+      const latestJobEntry = updatedPlaylist?.jobEntries[updatedPlaylist.jobEntries.length - 1];
+      if (latestJobEntry) {
+        setCurrentWorkflowJobEntry(latestJobEntry);
+        setJobEntryStatus(latestJobEntry.status);
+      }
 
-      setStep(3); // Move to Resume Import step
+      setStep(3);
     }
   };
 
@@ -176,7 +161,6 @@ const FirstApplicationWorkflow = () => {
       try {
         const resumeData = await parseResumeFile(uploadedFile);
         setParsedResume(resumeData);
-        // Initialize editable states with parsed data
         setEditedResumeName(resumeData.name);
         setEditedResumeEmail(resumeData.email);
         setEditedResumePhone(resumeData.phone);
@@ -185,7 +169,7 @@ const FirstApplicationWorkflow = () => {
         setEditedResumeExperience(resumeData.experience);
         setEditedResumeEducation(resumeData.education);
         setEditedResumeSkills(resumeData.skills);
-        setStep(4); // Move to review parsed resume step
+        setStep(4);
       } catch (error) {
         console.error("Error parsing resume:", error);
         alert("Failed to parse resume. Please try again.");
@@ -209,27 +193,23 @@ const FirstApplicationWorkflow = () => {
         education: editedResumeEducation,
         skills: editedResumeSkills,
       };
-      console.log("Confirmed Master Resume:", finalResume);
-      setMasterResume(finalResume); // Store the master resume
+      setMasterResume(finalResume);
 
-      // Calculate initial fit score for Master Resume Overview
       if (parsedJd) {
         const score = calculateFitScore(finalResume, parsedJd.keywords);
         setFitScore(score);
       }
 
-      setStep(5); // Move to Master Resume Overview
+      setStep(5);
     }
   };
 
   const handleGenerateVersionResume = () => {
     if (masterResume) {
-      // Create a deep copy of the master resume for the version (FR-003)
       const newVersion = JSON.parse(JSON.stringify(masterResume));
       setVersionResume(newVersion);
-      setHasVersionChanges(false); // No changes initially
-      console.log("Generating Version Resume for:", editedRole);
-      setStep(6); // Move to Version Resume Tailoring
+      setHasVersionChanges(false);
+      setStep(6);
     }
   };
 
@@ -241,9 +221,7 @@ const FirstApplicationWorkflow = () => {
   };
 
   const handleSaveVersionAndContinue = () => {
-    console.log("Version Resume saved:", versionResume);
-    // In a real app, this would save the version resume to storage
-    setStep(7); // Move to Export & Share
+    setStep(7);
   };
 
   const handleExportResume = (format: 'docx' | 'pdf') => {
@@ -253,42 +231,35 @@ const FirstApplicationWorkflow = () => {
     }
 
     const resumeTextContent = generateAtsCompliantTextResume(versionResume, editedRole);
-    // Enforce descriptive file naming (FR-008)
-    const filename = `${versionResume.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`; // Using .txt for mock
+    const filename = `${versionResume.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`;
 
     const element = document.createElement("a");
     const file = new Blob([resumeTextContent], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
     element.download = filename;
-    document.body.appendChild(element); // Required for Firefox
+    document.body.appendChild(element);
     element.click();
-    document.body.removeChild(element); // Clean up
+    document.body.removeChild(element);
     alert(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
-    console.log(`Exporting ${format.toUpperCase()} (mock as .txt):`, versionResume);
   };
 
   const handleInviteToPod = () => {
     alert("Mock: Inviting peers to your Pod! (Email invitations would be sent) (FR-007)");
-    console.log("Inviting peers to Pod.");
-    // TODO: Implement actual Pod invitation (FR-007)
   };
 
   const handleSyncChanges = () => {
     if (masterResume && versionResume) {
-      // For mock, we'll just update the master summary (FR-003)
       setMasterResume({ ...masterResume, summary: versionResume.summary });
-      console.log("Changes from Version Resume synced to Master Resume.");
     }
     setHasVersionChanges(false);
     setShowSyncPrompt(false);
-    setStep(5); // Go back to Master Resume Overview
+    setStep(5);
   };
 
   const handleDiscardChanges = () => {
-    console.log("Changes from Version Resume discarded.");
     setHasVersionChanges(false);
     setShowSyncPrompt(false);
-    setStep(5); // Go back to Master Resume Overview
+    setStep(5);
   };
 
   const handleBack = () => {
@@ -297,7 +268,7 @@ const FirstApplicationWorkflow = () => {
     else if (step === 4) setStep(3);
     else if (step === 5) {
       if (hasVersionChanges) {
-        setShowSyncPrompt(true); // Show sync prompt if going back from version to master with changes
+        setShowSyncPrompt(true);
       } else {
         setStep(4);
       }
@@ -306,12 +277,11 @@ const FirstApplicationWorkflow = () => {
     else if (step === 7) setStep(6);
   };
 
-  const handleJobEntryStatusChange = (value: JobEntry['status']) => {
+  const handleJobEntryStatusChange = (value: JobEntryStatus) => {
     setJobEntryStatus(value);
-    if (currentJobEntry) {
-      setCurrentJobEntry(prev => prev ? { ...prev, status: value } : null);
-      // In a real app, you'd update the playlist state here
-      console.log(`Job Entry status updated to: ${value}`);
+    if (currentWorkflowJobEntry) {
+      updateJobEntryStatus(defaultPlaylistId, currentWorkflowJobEntry.id, value);
+      setCurrentWorkflowJobEntry(prev => prev ? { ...prev, status: value } : null);
     }
   };
 
@@ -390,6 +360,38 @@ const FirstApplicationWorkflow = () => {
                   (Keywords are extracted to help tailor your resume. Full editing functionality for keywords will be added later.)
                 </p>
               </div>
+
+              <h3 className="text-xl font-semibold mb-4 mt-6">Optional Job Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="salary-range">Salary Range (e.g., $80k - $100k)</Label>
+                  <Input
+                    id="salary-range"
+                    value={salaryRange}
+                    onChange={(e) => setSalaryRange(e.target.value)}
+                    placeholder="e.g., $80,000 - $100,000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="location">Location / Remote / Hybrid</Label>
+                  <Input
+                    id="location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g., New York, NY (Remote)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="source">Source (e.g., LinkedIn, Referral)</Label>
+                  <Input
+                    id="source"
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    placeholder="e.g., LinkedIn, Company Website"
+                  />
+                </div>
+              </div>
+
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -416,13 +418,13 @@ const FirstApplicationWorkflow = () => {
                   (This is a mock upload. We'll simulate parsing your resume data.)
                 </p>
               </div>
-              {currentJobEntry && (
+              {currentWorkflowJobEntry && (
                 <Card className="p-4 border-l-4 border-primary">
                   <CardTitle className="text-lg flex items-center gap-2 mb-2">
-                    <Briefcase className="h-5 w-5" /> Job Saved: {currentJobEntry.roleTitle}
+                    <Briefcase className="h-5 w-5" /> Job Saved: {currentWorkflowJobEntry.roleTitle}
                   </CardTitle>
                   <CardDescription className="flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4" /> Deadline: {currentJobEntry.applicationDeadline}
+                    <CalendarDays className="h-4 w-4" /> Deadline: {currentWorkflowJobEntry.applicationDeadline}
                   </CardDescription>
                   <div className="flex items-center gap-2 mt-2">
                     <Label>Status:</Label>
@@ -597,13 +599,13 @@ const FirstApplicationWorkflow = () => {
                 Keywords from the job description are highlighted below, and a Fit Score is calculated.
               </p>
               <MasterResumeDisplay resume={masterResume} jobDescription={parsedJd} fitScore={fitScore} />
-              {currentJobEntry && (
+              {currentWorkflowJobEntry && (
                 <Card className="p-4 border-l-4 border-primary">
                   <CardTitle className="text-lg flex items-center gap-2 mb-2">
-                    <Briefcase className="h-5 w-5" /> Job Tracked: {currentJobEntry.roleTitle}
+                    <Briefcase className="h-5 w-5" /> Job Tracked: {currentWorkflowJobEntry.roleTitle}
                   </CardTitle>
                   <CardDescription className="flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4" /> Deadline: {currentJobEntry.applicationDeadline}
+                    <CalendarDays className="h-4 w-4" /> Deadline: {currentWorkflowJobEntry.applicationDeadline}
                   </CardDescription>
                   <div className="flex items-center gap-2 mt-2">
                     <Label>Status:</Label>
