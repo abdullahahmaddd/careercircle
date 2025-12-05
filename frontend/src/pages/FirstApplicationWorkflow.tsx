@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePlaylists, JobEntryStatus, JobEntry } from "@/context/PlaylistContext";
 import { useAuth } from "@/context/AuthContext";
 import { usePods } from "@/context/PodContext";
-import { useResumes } from "@/context/ResumeContext"; // Import useResumes
+import { useResumes } from "@/context/ResumeContext";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -76,7 +76,7 @@ const FirstApplicationWorkflow = () => {
   const { playlists, addJobEntry, updateJobEntryStatus } = usePlaylists();
   const { currentUser, markFirstApplicationComplete } = useAuth();
   const { createPod, shareResumeInPod, invitePeerToPod, pods } = usePods();
-  const { masterResume, versionResumes, saveMasterResume, updateMasterResumeContent, createVersionResume, updateVersionResumeContent } = useResumes(); // Use useResumes
+  const { masterResume, versionResumes, saveMasterResume, updateMasterResumeContent, createVersionResume, updateVersionResumeContent } = useResumes();
   const navigate = useNavigate();
   const defaultPlaylistId = playlists[0]?.id || 'default-playlist';
 
@@ -91,8 +91,8 @@ const FirstApplicationWorkflow = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isParsingResume, setIsParsingResume] = useState(false);
 
-  const [currentEditedMasterContent, setCurrentEditedMasterContent] = useState<ParsedResume | null>(null); // For editing parsed resume before saving as master
-  const [currentEditedVersionContent, setCurrentEditedVersionContent] = useState<ParsedResume | null>(null); // For editing version resume
+  const [currentEditedMasterContent, setCurrentEditedMasterContent] = useState<ParsedResume | null>(null);
+  const [currentEditedVersionContent, setCurrentEditedVersionContent] = useState<ParsedResume | null>(null);
 
   const [currentWorkflowJobEntry, setCurrentWorkflowJobEntry] = useState<JobEntry | null>(null);
   const [applicationDeadline, setApplicationDeadline] = useState("");
@@ -244,7 +244,12 @@ const FirstApplicationWorkflow = () => {
     // Save the current edits to the actual version resume in context
     await updateVersionResumeContent(versionResumeIdForSync, currentEditedVersionContent);
 
-    setStep(7);
+    // Check if there are changes compared to the master resume
+    if (masterResume && !resumesAreEqual(currentEditedVersionContent, masterResume.content)) {
+      setShowSyncPrompt(true);
+    } else {
+      setStep(7);
+    }
   };
 
   const handleExportResume = (format: 'docx' | 'pdf') => {
@@ -303,20 +308,16 @@ const FirstApplicationWorkflow = () => {
   const handleSyncChanges = async () => {
     if (!currentUser || !masterResume || !currentEditedVersionContent || !versionResumeIdForSync) return;
 
-    // Update the version resume in context first
-    await updateVersionResumeContent(versionResumeIdForSync, currentEditedVersionContent);
-    // Then sync that version's content to master
-    // The syncVersionToMaster function in ResumeContext already handles updating masterResume state
-    // and saving to local storage.
+    // Update the master resume with the content of the current version
     await updateMasterResumeContent(currentUser.id, currentEditedVersionContent);
 
     setShowSyncPrompt(false);
-    setStep(5);
+    setStep(7);
   };
 
   const handleDiscardChanges = () => {
     setShowSyncPrompt(false);
-    setStep(5);
+    setStep(7);
   };
 
   const handleBack = () => {
@@ -324,17 +325,22 @@ const FirstApplicationWorkflow = () => {
     else if (step === 3) setStep(2);
     else if (step === 4) setStep(3);
     else if (step === 5) {
-      // Check if the current version resume has changes compared to the master
-      const currentVersionInContext = versionResumes.find(v => v.id === versionResumeIdForSync);
-      const hasChanges = currentVersionInContext && masterResume && !resumesAreEqual(currentVersionInContext.content, masterResume.content);
-
-      if (hasChanges) {
+      // When going back from Master Resume Overview, if there's a version being worked on
+      // and it has unsynced changes, prompt the user.
+      if (versionResumeIdForSync && currentEditedVersionContent && masterResume && !resumesAreEqual(currentEditedVersionContent, masterResume.content)) {
         setShowSyncPrompt(true);
       } else {
         setStep(4);
       }
     }
-    else if (step === 6) setStep(5);
+    else if (step === 6) {
+      // When going back from Version Resume Tailoring, if there are unsynced changes, prompt.
+      if (currentEditedVersionContent && masterResume && !resumesAreEqual(currentEditedVersionContent, masterResume.content)) {
+        setShowSyncPrompt(true);
+      } else {
+        setStep(5);
+      }
+    }
     else if (step === 7) setStep(6);
   };
 
