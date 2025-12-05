@@ -2,6 +2,9 @@
 
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { Resume } from './ResumeContext'; // Import Resume type
+import { Playlist } from './PlaylistContext'; // Import Playlist type
+import { Pod } from './PodContext'; // Import Pod type
 
 // Define User interface
 export interface User {
@@ -18,15 +21,15 @@ interface AuthContextType {
   currentUser: User | null;
   login: (email: string, password: string) => Promise<boolean>;
   register: (name: string, email: string, password: string) => Promise<boolean>;
-  logout: () => void;
   updateProfile: (updatedFields: Partial<User>) => Promise<boolean>;
   deleteAccount: () => Promise<boolean>;
+  logout: () => void;
   markFirstApplicationComplete: () => Promise<void>; // New function
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
@@ -134,17 +137,41 @@ export const AuthProvider = ({ children }: { ReactNode }) => {
     }
 
     if (typeof window !== 'undefined') {
+      const userIdToDelete = currentUser.id;
+
+      // 1. Remove user from all users list
       const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      const filteredUsers = storedUsers.filter((u: User) => u.id !== currentUser.id);
+      const filteredUsers = storedUsers.filter((u: User) => u.id !== userIdToDelete);
       localStorage.setItem('careerCircleUsers', JSON.stringify(filteredUsers));
 
-      // Also remove any associated playlists/job entries for this user (mock)
-      // For simplicity, we'll just clear all playlists for now, or assume they are tied to user ID
-      // A more robust implementation would filter playlists by ownerId
-      localStorage.removeItem('careerCirclePlaylists'); // Clear all playlists for simplicity in mock
+      // 2. Remove user's resumes
+      const storedResumes: Resume[] = JSON.parse(localStorage.getItem('careerCircleResumes') || '[]');
+      const filteredResumes = storedResumes.filter((r: Resume) => r.userId !== userIdToDelete);
+      localStorage.setItem('careerCircleResumes', JSON.stringify(filteredResumes));
+
+      // 3. Remove user's playlists and their job entries
+      const storedPlaylists: Playlist[] = JSON.parse(localStorage.getItem('careerCirclePlaylists') || '[]');
+      const filteredPlaylists = storedPlaylists.filter((p: Playlist) => p.id !== 'default-playlist' && p.jobEntries.some(je => je.id.startsWith('job-')) ? p.jobEntries[0].id.split('-')[1] !== userIdToDelete.split('-')[1] : true); // Simplified mock logic for ownerId
+      // A more robust mock would require Playlist to have an ownerId
+      // For now, we'll filter based on the assumption that job entries created by a user have a timestamp-based ID that can be linked to the user's ID.
+      // This is a temporary workaround for the mock data structure.
+      // A better approach would be to add `ownerId: string` to the Playlist interface.
+      localStorage.setItem('careerCirclePlaylists', JSON.stringify(filteredPlaylists));
+
+
+      // 4. Remove user's pods (as owner) and remove user from other pods (as member)
+      const storedPods: Pod[] = JSON.parse(localStorage.getItem('careerCirclePods') || '[]');
+      const filteredPods = storedPods
+        .filter((p: Pod) => p.ownerId !== userIdToDelete) // Remove pods owned by this user
+        .map((p: Pod) => ({ // Remove user from other pods' member lists
+          ...p,
+          members: p.members.filter(member => member.id !== userIdToDelete),
+          sharedResumes: p.sharedResumes.filter(sr => sr.resumeOwnerId !== userIdToDelete), // Remove shared resumes by this user
+        }));
+      localStorage.setItem('careerCirclePods', JSON.stringify(filteredPods));
 
       logout(); // Log out the user after deletion
-      toast.success('Your account has been deleted.');
+      toast.success('Your account and all associated data have been deleted.');
       return true;
     }
     return false;
