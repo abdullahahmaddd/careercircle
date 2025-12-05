@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { usePods, Pod, SharedResume, Comment } from "@/context/PodContext";
 import { useAuth } from "@/context/AuthContext";
+import { useResumes } from "@/context/ResumeContext"; // Import useResumes
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,10 +32,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 const Pods = () => {
   const { pods, createPod, invitePeerToPod, shareResumeInPod, addCommentToSharedResume, deleteComment, getSharedResumeById } = usePods();
   const { currentUser, isAuthenticated } = useAuth();
+  const { versionResumes, getResumeById } = useResumes(); // Use useResumes to get version resumes
 
   const [newPodName, setNewPodName] = useState("");
   const [isCreatePodDialogOpen, setIsCreatePodDialogOpen] = useState(false);
@@ -45,7 +48,7 @@ const Pods = () => {
 
   const [isShareResumeDialogOpen, setIsShareResumeDialogOpen] = useState(false);
   const [selectedPodToShare, setSelectedPodToShare] = useState<string | undefined>(undefined);
-  const [resumeToShare, setResumeToShare] = useState<string | undefined>(undefined); // Mock: In a real app, this would be a resume ID
+  const [selectedVersionResumeIdToShare, setSelectedVersionResumeIdToShare] = useState<string | undefined>(undefined); // New state for selected version resume ID
 
   const [isViewResumeDialogOpen, setIsViewResumeDialogOpen] = useState(false);
   const [currentSharedResume, setCurrentSharedResume] = useState<SharedResume | null>(null);
@@ -76,20 +79,20 @@ const Pods = () => {
   };
 
   const handleShareResume = async () => {
-    if (!selectedPodToShare || !resumeToShare || !currentUser) return;
-    // Mock: In a real app, 'resumeToShare' would be a ParsedResume object
-    // For now, we'll use a dummy resume or assume the user has a master resume
-    const dummyResume: ParsedResume = {
-      name: currentUser.name,
-      email: currentUser.email,
-      phone: "N/A",
-      experience: [],
-      education: [],
-      skills: [{ name: resumeToShare, level: "Mock" }], // Use resumeToShare as a skill for mock
-      summary: `This is a mock resume shared by ${currentUser.name} for feedback. Focus: ${resumeToShare}.`
-    };
-    await shareResumeInPod(selectedPodToShare, currentUser.id, currentUser.name, dummyResume);
-    setResumeToShare(undefined);
+    if (!selectedPodToShare || !selectedVersionResumeIdToShare || !currentUser) {
+      toast.error("Please select a Pod and a Version Resume to share.");
+      return;
+    }
+
+    const versionResumeToShare = getResumeById(selectedVersionResumeIdToShare);
+
+    if (!versionResumeToShare || versionResumeToShare.type !== 'version') {
+      toast.error("Selected resume is not a valid version resume.");
+      return;
+    }
+
+    await shareResumeInPod(selectedPodToShare, currentUser.id, currentUser.name, versionResumeToShare.content);
+    setSelectedVersionResumeIdToShare(undefined);
     setSelectedPodToShare(undefined);
     setIsShareResumeDialogOpen(false);
   };
@@ -188,12 +191,12 @@ const Pods = () => {
 
         <Dialog open={isShareResumeDialogOpen} onOpenChange={setIsShareResumeDialogOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline"><Share2 className="mr-2 h-4 w-4" /> Share Resume</Button>
+            <Button variant="outline" disabled={versionResumes.length === 0}><Share2 className="mr-2 h-4 w-4" /> Share Resume</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Share Resume with Pod</DialogTitle>
-              <DialogDescription>Select a Pod and specify which resume version to share.</DialogDescription>
+              <DialogDescription>Select a Pod and choose which resume version to share.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
@@ -210,15 +213,26 @@ const Pods = () => {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="resume-to-share">Resume Version (Mock)</Label>
-                <Input id="resume-to-share" value={resumeToShare} onChange={(e) => setResumeToShare(e.target.value)} placeholder="e.g., Marketing Associate Resume" />
-                <p className="text-sm text-muted-foreground">
-                  (In a real app, you would select an actual resume from your saved versions.)
-                </p>
+                <Label htmlFor="resume-to-share">Resume Version</Label>
+                <Select value={selectedVersionResumeIdToShare} onValueChange={setSelectedVersionResumeIdToShare}>
+                  <SelectTrigger id="resume-to-share">
+                    <SelectValue placeholder="Select a Version Resume" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versionResumes.map(resume => (
+                      <SelectItem key={resume.id} value={resume.id}>{resume.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {versionResumes.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    You need to create a version resume first in the "Resumes" section.
+                  </p>
+                )}
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={handleShareResume} disabled={!selectedPodToShare || !resumeToShare}>Share</Button>
+              <Button onClick={handleShareResume} disabled={!selectedPodToShare || !selectedVersionResumeIdToShare}>Share</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
