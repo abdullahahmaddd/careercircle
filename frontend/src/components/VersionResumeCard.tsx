@@ -30,7 +30,7 @@ import MasterResumeDisplay from "./MasterResumeDisplay";
 import { toast } from "sonner";
 import { ParsedResume } from "@/utils/resumeParser";
 import { Link } from "react-router-dom";
-import { Badge } from "@/components/ui/badge"; // Import Badge
+import { Badge } from "@/components/ui/badge";
 
 interface VersionResumeCardProps {
   versionResume: Resume;
@@ -143,7 +143,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={handleSyncToMaster}>Sync</AlertDialogAction>
-              </AlertDialogAction>
+              </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
 
