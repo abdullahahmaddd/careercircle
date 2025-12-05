@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Rocket } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
+import UpcomingDeadlines from "@/components/UpcomingDeadlines"; // Import UpcomingDeadlines
 
 const Dashboard = () => {
   const { isAuthenticated, currentUser } = useAuth();
@@ -19,6 +20,7 @@ const Dashboard = () => {
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-4">
+      {isAuthenticated && <UpcomingDeadlines />} {/* Render UpcomingDeadlines if authenticated */}
       <Card className="w-full max-w-2xl p-8 text-center shadow-lg">
         <Rocket className="mx-auto h-16 w-16 text-primary mb-6" />
         <h1 className="text-4xl font-bold text-foreground mb-4">
