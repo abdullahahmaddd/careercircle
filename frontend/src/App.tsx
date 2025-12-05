@@ -11,7 +11,9 @@ import Pods from "./pages/Pods";
 import Settings from "./pages/Settings";
 import FirstApplicationWorkflow from "./pages/FirstApplicationWorkflow";
 import NotFound from "./pages/NotFound";
-import { PlaylistProvider } from "./context/PlaylistContext"; // Import PlaylistProvider
+import Auth from "./pages/Auth"; // Import the new Auth page
+import { PlaylistProvider } from "./context/PlaylistContext";
+import { AuthProvider } from "./context/AuthContext"; // Import AuthProvider
 
 const queryClient = new QueryClient();
 
@@ -21,20 +23,23 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <PlaylistProvider> {/* Wrap with PlaylistProvider */}
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
-              <Route path="resumes" element={<Resumes />} />
-              <Route path="playlists" element={<Playlists />} />
-              <Route path="pods" element={<Pods />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="first-application" element={<FirstApplicationWorkflow />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
-        </PlaylistProvider>
+        <AuthProvider> {/* Wrap with AuthProvider */}
+          <PlaylistProvider>
+            <Routes>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<Dashboard />} />
+                <Route path="resumes" element={<Resumes />} />
+                <Route path="playlists" element={<Playlists />} />
+                <Route path="pods" element={<Pods />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="first-application" element={<FirstApplicationWorkflow />} />
+                <Route path="auth" element={<Auth />} /> {/* Add Auth route */}
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Routes>
+          </PlaylistProvider>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
