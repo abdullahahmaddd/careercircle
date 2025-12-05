@@ -620,7 +620,6 @@ const FirstApplicationWorkflow = () => {
             <AlertDialogDescription>
               We noticed you updated your "{editedRole || "tailored"}" version. Would you like to apply these changes to your Master Resume before going back?
             </AlertDialogDescription>
-          </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleDiscardChanges}>Discard Changes</AlertDialogCancel>
