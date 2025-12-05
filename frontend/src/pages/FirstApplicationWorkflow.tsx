@@ -21,6 +21,49 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// Helper function to generate ATS-compliant plain text resume content
+const generateAtsCompliantTextResume = (resume: ParsedResume, jobRole: string): string => {
+  let text = `Resume for ${resume.name} - Tailored for ${jobRole}\n\n`;
+  text += `Contact Information:\n`;
+  text += `Name: ${resume.name}\n`;
+  text += `Email: ${resume.email}\n`;
+  text += `Phone: ${resume.phone}\n`;
+  if (resume.linkedin) text += `LinkedIn: ${resume.linkedin}\n`;
+  text += `\n`;
+
+  if (resume.summary) {
+    text += `Summary:\n`;
+    text += `${resume.summary}\n\n`;
+  }
+
+  if (resume.experience.length > 0) {
+    text += `Work Experience:\n`;
+    resume.experience.forEach((exp) => {
+      text += `- ${exp.title} at ${exp.company} (${exp.startDate} - ${exp.endDate})\n`;
+      exp.description.forEach((desc) => {
+        text += `  • ${desc}\n`;
+      });
+      text += `\n`;
+    });
+  }
+
+  if (resume.education.length > 0) {
+    text += `Education:\n`;
+    resume.education.forEach((edu) => {
+      text += `- ${edu.degree}, ${edu.institution} (Graduation: ${edu.graduationDate})\n`;
+    });
+    text += `\n`;
+  }
+
+  if (resume.skills.length > 0) {
+    text += `Skills:\n`;
+    text += resume.skills.map((skill) => skill.name + (skill.level ? ` (${skill.level})` : '')).join(', ') + '\n';
+  }
+
+  return text;
+};
+
+
 const FirstApplicationWorkflow = () => {
   const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring, 7: Export & Share
   const [jobDescription, setJobDescription] = useState("");
@@ -150,30 +193,24 @@ const FirstApplicationWorkflow = () => {
     setStep(7); // Move to Export & Share
   };
 
-  const handleExportDocx = () => {
-    alert("Mock: Downloading ATS-compliant DOCX for " + (versionResume?.name || "your resume"));
-    console.log("Exporting DOCX:", versionResume);
-    // Simulate file download
-    const element = document.createElement("a");
-    const file = new Blob([JSON.stringify(versionResume, null, 2)], { type: "text/plain" });
-    element.href = URL.createObjectURL(file);
-    element.download = `${versionResume?.name || "Resume"}_${editedRole || "Version"}.docx`;
-    document.body.appendChild(element); // Required for Firefox
-    element.click();
-    document.body.removeChild(element); // Clean up
-  };
+  const handleExportResume = (format: 'docx' | 'pdf') => {
+    if (!versionResume) {
+      alert("No version resume available to export.");
+      return;
+    }
 
-  const handleExportPdf = () => {
-    alert("Mock: Downloading ATS-compliant PDF for " + (versionResume?.name || "your resume"));
-    console.log("Exporting PDF:", versionResume);
-    // Simulate file download
+    const resumeTextContent = generateAtsCompliantTextResume(versionResume, editedRole);
+    const filename = `${versionResume.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`; // Using .txt for mock
+
     const element = document.createElement("a");
-    const file = new Blob([JSON.stringify(versionResume, null, 2)], { type: "text/plain" });
+    const file = new Blob([resumeTextContent], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
-    element.download = `${versionResume?.name || "Resume"}_${editedRole || "Version"}.pdf`;
+    element.download = filename;
     document.body.appendChild(element); // Required for Firefox
     element.click();
     document.body.removeChild(element); // Clean up
+    alert(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${versionResume.name}.`);
+    console.log(`Exporting ${format.toUpperCase()} (mock as .txt):`, versionResume);
   };
 
   const handleInviteToPod = () => {
@@ -521,12 +558,15 @@ const FirstApplicationWorkflow = () => {
                 Download your ATS-compliant resume and get ready to apply.
                 You can also invite peers to your Pod for valuable feedback.
               </p>
+              <p className="text-sm text-orange-500 mb-4">
+                (Note: For this frontend-only app, DOCX/PDF export is simulated by downloading a structured plain text file.)
+              </p>
               <div className="flex flex-col md:flex-row justify-center gap-4 mb-8">
-                <Button onClick={handleExportDocx}>
-                  <Download className="mr-2 h-4 w-4" /> Export as DOCX
+                <Button onClick={() => handleExportResume('docx')}>
+                  <Download className="mr-2 h-4 w-4" /> Export as DOCX (Mock)
                 </Button>
-                <Button onClick={handleExportPdf}>
-                  <Download className="mr-2 h-4 w-4" /> Export as PDF
+                <Button onClick={() => handleExportResume('pdf')}>
+                  <Download className="mr-2 h-4 w-4" /> Export as PDF (Mock)
                 </Button>
               </div>
               <div className="space-y-4">

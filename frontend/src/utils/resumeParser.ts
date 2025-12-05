@@ -32,8 +32,11 @@ export interface ParsedResume {
 
 /**
  * Mock function to simulate parsing a resume file (PDF/DOCX).
- * In a real application, this would involve a backend service or a complex client-side library.
- * For frontend-only, we return static mock data.
+ *
+ * IMPORTANT: In a real application, robust parsing of PDF/DOCX files to extract
+ * structured data typically requires a backend service with advanced Natural Language Processing (NLP)
+ * capabilities or a very sophisticated client-side library. This mock function
+ * returns static predefined data to simulate the process for a frontend-only environment.
  */
 export const parseResumeFile = (file: File): Promise<ParsedResume> => {
   console.log(`Simulating parsing for file: ${file.name}`);
