@@ -34,11 +34,12 @@ interface PlaylistContextType {
   updateJobEntry: (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => void;
   deleteJobEntry: (playlistId: string, jobEntryId: string) => void;
   deletePlaylist: (playlistId: string) => void;
+  hasUpcomingDeadlines: boolean; // New: Flag for upcoming deadlines
 }
 
 const PlaylistContext = createContext<PlaylistContextType | undefined>(undefined);
 
-export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
+export const PlaylistProvider = ({ children }: { ReactNode }) => {
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
     // Initialize from localStorage or with a default playlist
     if (typeof window !== 'undefined') {
@@ -127,6 +128,23 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
     setPlaylists((prev) => prev.filter((playlist) => playlist.id !== playlistId));
   };
 
+  // Calculate hasUpcomingDeadlines
+  const hasUpcomingDeadlines = React.useMemo(() => {
+    const allJobEntries = playlists.flatMap(playlist => playlist.jobEntries);
+    const now = new Date();
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(now.getDate() + 7);
+
+    return allJobEntries.some(job => {
+      const deadline = new Date(job.applicationDeadline);
+      return (
+        job.status !== 'Applied' &&
+        deadline > now &&
+        deadline <= sevenDaysFromNow
+      );
+    });
+  }, [playlists]);
+
   return (
     <PlaylistContext.Provider
       value={{
@@ -137,6 +155,7 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
         updateJobEntry,
         deleteJobEntry,
         deletePlaylist,
+        hasUpcomingDeadlines, // Provide the new flag
       }}
     >
       {children}

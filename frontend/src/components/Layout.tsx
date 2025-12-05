@@ -12,17 +12,19 @@ import { Menu, Home, FileText, List, Users, Settings, LogIn, LogOut, User as Use
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
+import { usePlaylists } from "@/context/PlaylistContext"; // Import usePlaylists
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip components
+import { Badge } from "@/components/ui/badge"; // Import Badge component
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: Home, requiresAuth: false },
   { name: "Resumes", href: "/resumes", icon: FileText, requiresAuth: true },
-  { name: "Playlists", href: "/playlists", icon: List, requiresAuth: true },
+  { name: "Playlists", href: "/playlists", icon: List, requiresAuth: true, hasReminder: true }, // Added hasReminder flag
   { name: "Pods", href: "/pods", icon: Users, requiresAuth: true },
   { name: "Settings", href: "/settings", icon: Settings, requiresAuth: true },
 ];
 
-const SidebarNav = ({ className, isAuthenticated, logout, isSidebarOpen }: { className?: string; isAuthenticated: boolean; logout: () => void; isSidebarOpen: boolean }) => (
+const SidebarNav = ({ className, isAuthenticated, logout, isSidebarOpen, hasUpcomingDeadlines }: { className?: string; isAuthenticated: boolean; logout: () => void; isSidebarOpen: boolean; hasUpcomingDeadlines: boolean }) => (
   <nav className={cn("flex flex-col space-y-1", className)}>
     {navItems.map((item) => {
       if (item.requiresAuth && !isAuthenticated) {
@@ -41,6 +43,12 @@ const SidebarNav = ({ className, isAuthenticated, logout, isSidebarOpen }: { cla
           <Link to={item.href} className="flex items-center w-full">
             <item.icon className={cn("h-5 w-5", isSidebarOpen ? "mr-3" : "mr-0")} />
             {isSidebarOpen && item.name}
+            {item.hasReminder && hasUpcomingDeadlines && isSidebarOpen && (
+              <Badge variant="destructive" className="ml-auto">!</Badge>
+            )}
+            {item.hasReminder && hasUpcomingDeadlines && !isSidebarOpen && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+            )}
           </Link>
         </Button>
       );
@@ -80,6 +88,7 @@ const SidebarNav = ({ className, isAuthenticated, logout, isSidebarOpen }: { cla
 const Layout = () => {
   const isMobile = useIsMobile();
   const { isAuthenticated, currentUser, logout } = useAuth();
+  const { hasUpcomingDeadlines } = usePlaylists(); // Use the new flag
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -122,7 +131,7 @@ const Layout = () => {
             </Link>
           )}
 
-          <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={isSidebarOpen} />
+          <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={isSidebarOpen} hasUpcomingDeadlines={hasUpcomingDeadlines} />
           <div className="mt-auto pt-4 border-t border-sidebar-border w-full">
             <Button
               variant="ghost"
@@ -156,7 +165,7 @@ const Layout = () => {
                     </div>
                   </Link>
                 )}
-                <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={true} /> {/* Mobile sidebar always open */}
+                <SidebarNav isAuthenticated={isAuthenticated} logout={logout} isSidebarOpen={true} hasUpcomingDeadlines={hasUpcomingDeadlines} /> {/* Mobile sidebar always open */}
               </SheetContent>
             </Sheet>
             <div className="text-xl font-bold text-sidebar-primary">CareerCircle</div>
