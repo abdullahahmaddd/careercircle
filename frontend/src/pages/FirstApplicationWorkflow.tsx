@@ -4,15 +4,25 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ArrowRight, CheckCircle2, Upload, FileText } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Upload, FileText, Download, Share2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { parseJobDescription, ParsedJobDescription } from "@/utils/jdParser";
 import { parseResumeFile, ParsedResume, Experience, Education, Skill } from "@/utils/resumeParser";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const FirstApplicationWorkflow = () => {
-  const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring
+  const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring, 7: Export & Share
   const [jobDescription, setJobDescription] = useState("");
   const [parsedJd, setParsedJd] = useState<ParsedJobDescription | null>(null);
   const [editedRole, setEditedRole] = useState("");
@@ -23,7 +33,8 @@ const FirstApplicationWorkflow = () => {
   const [parsedResume, setParsedResume] = useState<ParsedResume | null>(null);
   const [isParsingResume, setIsParsingResume] = useState(false);
 
-  // State for editable resume fields
+  // State for editable resume fields (Master Resume)
+  const [masterResume, setMasterResume] = useState<ParsedResume | null>(null);
   const [editedResumeName, setEditedResumeName] = useState("");
   const [editedResumeEmail, setEditedResumeEmail] = useState("");
   const [editedResumePhone, setEditedResumePhone] = useState("");
@@ -32,6 +43,11 @@ const FirstApplicationWorkflow = () => {
   const [editedResumeExperience, setEditedResumeExperience] = useState<Experience[]>([]);
   const [editedResumeEducation, setEditedResumeEducation] = useState<Education[]>([]);
   const [editedResumeSkills, setEditedResumeSkills] = useState<Skill[]>([]);
+
+  // State for Version Resume
+  const [versionResume, setVersionResume] = useState<ParsedResume | null>(null);
+  const [hasVersionChanges, setHasVersionChanges] = useState(false);
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
 
   const handleParseJd = () => {
     if (jobDescription.trim()) {
@@ -94,7 +110,7 @@ const FirstApplicationWorkflow = () => {
 
   const handleConfirmResume = () => {
     if (parsedResume) {
-      const finalResume = {
+      const finalResume: ParsedResume = {
         name: editedResumeName,
         email: editedResumeEmail,
         phone: editedResumePhone,
@@ -105,23 +121,98 @@ const FirstApplicationWorkflow = () => {
         skills: editedResumeSkills,
       };
       console.log("Confirmed Master Resume:", finalResume);
-      // TODO: Implement creating Master Resume (FR-003)
+      setMasterResume(finalResume); // Store the master resume
       setStep(5); // Move to Master Resume Overview
     }
   };
 
   const handleGenerateVersionResume = () => {
-    // TODO: Implement actual version resume creation (FR-003)
-    console.log("Generating Version Resume for:", editedRole);
-    setStep(6); // Move to Version Resume Tailoring
+    if (masterResume) {
+      // Create a deep copy of the master resume for the version
+      const newVersion = JSON.parse(JSON.stringify(masterResume));
+      setVersionResume(newVersion);
+      setHasVersionChanges(false); // No changes initially
+      console.log("Generating Version Resume for:", editedRole);
+      setStep(6); // Move to Version Resume Tailoring
+    }
+  };
+
+  const handleVersionSummaryChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (versionResume) {
+      setVersionResume({ ...versionResume, summary: e.target.value });
+      setHasVersionChanges(true);
+    }
+  };
+
+  const handleSaveVersionAndContinue = () => {
+    console.log("Version Resume saved:", versionResume);
+    // In a real app, this would save the version resume to storage
+    setStep(7); // Move to Export & Share
+  };
+
+  const handleExportDocx = () => {
+    alert("Mock: Downloading ATS-compliant DOCX for " + (versionResume?.name || "your resume"));
+    console.log("Exporting DOCX:", versionResume);
+    // Simulate file download
+    const element = document.createElement("a");
+    const file = new Blob([JSON.stringify(versionResume, null, 2)], { type: "text/plain" });
+    element.href = URL.createObjectURL(file);
+    element.download = `${versionResume?.name || "Resume"}_${editedRole || "Version"}.docx`;
+    document.body.appendChild(element); // Required for Firefox
+    element.click();
+    document.body.removeChild(element); // Clean up
+  };
+
+  const handleExportPdf = () => {
+    alert("Mock: Downloading ATS-compliant PDF for " + (versionResume?.name || "your resume"));
+    console.log("Exporting PDF:", versionResume);
+    // Simulate file download
+    const element = document.createElement("a");
+    const file = new Blob([JSON.stringify(versionResume, null, 2)], { type: "text/plain" });
+    element.href = URL.createObjectURL(file);
+    element.download = `${versionResume?.name || "Resume"}_${editedRole || "Version"}.pdf`;
+    document.body.appendChild(element); // Required for Firefox
+    element.click();
+    document.body.removeChild(element); // Clean up
+  };
+
+  const handleInviteToPod = () => {
+    alert("Mock: Inviting peers to your Pod! (Email invitations would be sent)");
+    console.log("Inviting peers to Pod.");
+    // TODO: Implement actual Pod invitation (FR-007)
+  };
+
+  const handleSyncChanges = () => {
+    if (masterResume && versionResume) {
+      // For mock, we'll just update the master summary
+      setMasterResume({ ...masterResume, summary: versionResume.summary });
+      console.log("Changes from Version Resume synced to Master Resume.");
+    }
+    setHasVersionChanges(false);
+    setShowSyncPrompt(false);
+    setStep(5); // Go back to Master Resume Overview
+  };
+
+  const handleDiscardChanges = () => {
+    console.log("Changes from Version Resume discarded.");
+    setHasVersionChanges(false);
+    setShowSyncPrompt(false);
+    setStep(5); // Go back to Master Resume Overview
   };
 
   const handleBack = () => {
     if (step === 2) setStep(1);
     else if (step === 3) setStep(2);
     else if (step === 4) setStep(3);
-    else if (step === 5) setStep(4);
+    else if (step === 5) {
+      if (hasVersionChanges) {
+        setShowSyncPrompt(true); // Show sync prompt if going back from version to master with changes
+      } else {
+        setStep(4);
+      }
+    }
     else if (step === 6) setStep(5);
+    else if (step === 7) setStep(6);
   };
 
   return (
@@ -136,6 +227,7 @@ const FirstApplicationWorkflow = () => {
             {step === 4 && "Review the parsed resume data. Make any necessary edits before creating your Master Resume."}
             {step === 5 && "Your Master Resume is ready! Now, let's create a tailored version for your application."}
             {step === 6 && "You're now tailoring your Version Resume. This is where you'd optimize it for the job description."}
+            {step === 7 && "Great job! Your tailored resume is ready. Now, export it and consider getting feedback from your peers."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -383,29 +475,97 @@ const FirstApplicationWorkflow = () => {
           )}
 
           {/* Step 6: Version Resume Tailoring */}
-          {step === 6 && (
+          {step === 6 && versionResume && (
             <div className="space-y-6 text-center">
               <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
               <h3 className="text-2xl font-semibold">Version Resume Tailoring</h3>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground mb-4">
                 You are now working on a tailored version of your resume for the "{editedRole || "selected"}" role.
-                Here, you would optimize content, keywords, and structure to match the job description.
+                Optimize content, keywords, and structure to match the job description.
               </p>
-              <p className="text-sm text-muted-foreground">
+              <div className="space-y-2 text-left">
+                <Label htmlFor="version-summary">Version Summary (Mock Edit)</Label>
+                <Textarea
+                  id="version-summary"
+                  value={versionResume.summary || ""}
+                  onChange={handleVersionSummaryChange}
+                  rows={5}
+                  placeholder="Edit your summary for this specific job application..."
+                />
+                {hasVersionChanges && (
+                  <p className="text-sm text-orange-500">
+                    Changes detected! These changes can be synced to your Master Resume later.
+                  </p>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
                 (Full tailoring functionality, including keyword fit score and content suggestions, will be implemented in future steps.)
               </p>
               <div className="flex justify-between mt-6">
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
-                <Button onClick={() => alert("Workflow complete for now! You'd proceed to export or share.")}>
-                  Finish Workflow (Mock) <CheckCircle2 className="ml-2 h-4 w-4" />
+                <Button onClick={handleSaveVersionAndContinue}>
+                  Save Version & Continue <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 7: Export & Share */}
+          {step === 7 && (
+            <div className="space-y-6 text-center">
+              <CheckCircle2 className="mx-auto h-16 w-16 text-green-500 mb-4" />
+              <h3 className="text-2xl font-semibold">Your Tailored Resume is Ready!</h3>
+              <p className="text-muted-foreground mb-6">
+                Download your ATS-compliant resume and get ready to apply.
+                You can also invite peers to your Pod for valuable feedback.
+              </p>
+              <div className="flex flex-col md:flex-row justify-center gap-4 mb-8">
+                <Button onClick={handleExportDocx}>
+                  <Download className="mr-2 h-4 w-4" /> Export as DOCX
+                </Button>
+                <Button onClick={handleExportPdf}>
+                  <Download className="mr-2 h-4 w-4" /> Export as PDF
+                </Button>
+              </div>
+              <div className="space-y-4">
+                <h4 className="text-xl font-semibold">Want feedback before you apply?</h4>
+                <p className="text-muted-foreground">
+                  Share this version with your CareerCircle for constructive criticism.
+                </p>
+                <Button variant="secondary" onClick={handleInviteToPod}>
+                  <Share2 className="mr-2 h-4 w-4" /> Invite Peers to Pod
+                </Button>
+              </div>
+              <div className="flex justify-between mt-6">
+                <Button variant="outline" onClick={handleBack}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <Button onClick={() => alert("Workflow complete! You can now navigate to other sections.")}>
+                  Finish Workflow <CheckCircle2 className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Master/Version Sync Alert Dialog */}
+      <AlertDialog open={showSyncPrompt} onOpenChange={setShowSyncPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes in Version Resume</AlertDialogTitle>
+            <AlertDialogDescription>
+              You've made changes to your tailored Version Resume. Would you like to apply these changes to your Master Resume before going back?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDiscardChanges}>Discard Changes</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSyncChanges}>Apply Changes to Master</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
