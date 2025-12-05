@@ -4,15 +4,15 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ArrowRight, CheckCircle2, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Upload, FileText } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { parseJobDescription, ParsedJobDescription } from "@/utils/jdParser";
-import { parseResumeFile, ParsedResume, Experience, Education, Skill } from "@/utils/resumeParser"; // Import resume parser
+import { parseResumeFile, ParsedResume, Experience, Education, Skill } from "@/utils/resumeParser";
 
 const FirstApplicationWorkflow = () => {
-  const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume
+  const [step, setStep] = useState(1); // 1: Paste JD, 2: Review Parsed JD, 3: Resume Import, 4: Review Parsed Resume, 5: Master Resume Overview, 6: Version Resume Tailoring
   const [jobDescription, setJobDescription] = useState("");
   const [parsedJd, setParsedJd] = useState<ParsedJobDescription | null>(null);
   const [editedRole, setEditedRole] = useState("");
@@ -104,22 +104,24 @@ const FirstApplicationWorkflow = () => {
         education: editedResumeEducation,
         skills: editedResumeSkills,
       };
-      console.log("Confirmed Resume:", finalResume);
+      console.log("Confirmed Master Resume:", finalResume);
       // TODO: Implement creating Master Resume (FR-003)
-      alert("Resume confirmed! Master Resume created (mock). Next step: Generate Version Resume.");
-      // For now, let's reset to step 1 or navigate away
-      setStep(1);
-      setJobDescription("");
-      setParsedJd(null);
-      setUploadedFile(null);
-      setParsedResume(null);
+      setStep(5); // Move to Master Resume Overview
     }
+  };
+
+  const handleGenerateVersionResume = () => {
+    // TODO: Implement actual version resume creation (FR-003)
+    console.log("Generating Version Resume for:", editedRole);
+    setStep(6); // Move to Version Resume Tailoring
   };
 
   const handleBack = () => {
     if (step === 2) setStep(1);
     else if (step === 3) setStep(2);
     else if (step === 4) setStep(3);
+    else if (step === 5) setStep(4);
+    else if (step === 6) setStep(5);
   };
 
   return (
@@ -132,6 +134,8 @@ const FirstApplicationWorkflow = () => {
             {step === 2 && "Review and confirm the extracted job details. You can make adjustments if needed."}
             {step === 3 && "Now, let's import your existing resume to create your Master Resume."}
             {step === 4 && "Review the parsed resume data. Make any necessary edits before creating your Master Resume."}
+            {step === 5 && "Your Master Resume is ready! Now, let's create a tailored version for your application."}
+            {step === 6 && "You're now tailoring your Version Resume. This is where you'd optimize it for the job description."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -353,6 +357,49 @@ const FirstApplicationWorkflow = () => {
                 </Button>
                 <Button onClick={handleConfirmResume}>
                   Confirm & Create Master Resume <CheckCircle2 className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Master Resume Overview */}
+          {step === 5 && (
+            <div className="space-y-6 text-center">
+              <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
+              <h3 className="text-2xl font-semibold">Master Resume Created!</h3>
+              <p className="text-muted-foreground">
+                Your Master Resume is now the single source of truth for your professional experience.
+                Next, let's generate a tailored version for the job you just saved.
+              </p>
+              <div className="flex justify-between mt-6">
+                <Button variant="outline" onClick={handleBack}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <Button onClick={handleGenerateVersionResume}>
+                  Generate First Version Resume <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 6: Version Resume Tailoring */}
+          {step === 6 && (
+            <div className="space-y-6 text-center">
+              <FileText className="mx-auto h-16 w-16 text-primary mb-4" />
+              <h3 className="text-2xl font-semibold">Version Resume Tailoring</h3>
+              <p className="text-muted-foreground">
+                You are now working on a tailored version of your resume for the "{editedRole || "selected"}" role.
+                Here, you would optimize content, keywords, and structure to match the job description.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                (Full tailoring functionality, including keyword fit score and content suggestions, will be implemented in future steps.)
+              </p>
+              <div className="flex justify-between mt-6">
+                <Button variant="outline" onClick={handleBack}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <Button onClick={() => alert("Workflow complete for now! You'd proceed to export or share.")}>
+                  Finish Workflow (Mock) <CheckCircle2 className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </div>
