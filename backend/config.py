@@ -9,10 +9,10 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "secure-random-string"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5137"]
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5137", "http://localhost:5138"]
 
     class Config:
-        env_file = ".env"
+        env_file = "backend/.env"
 
 @lru_cache
 def get_settings():

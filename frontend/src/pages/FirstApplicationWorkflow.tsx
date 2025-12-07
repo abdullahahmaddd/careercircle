@@ -153,7 +153,7 @@ const FirstApplicationWorkflow = () => {
     }
   };
 
-  const handleConfirmJd = () => {
+  const handleConfirmJd = async () => {
     if (parsedJd) {
       const finalJd = {
         ...parsedJd,
@@ -173,12 +173,11 @@ const FirstApplicationWorkflow = () => {
         source,
       };
 
-      addJobEntry(defaultPlaylistId, newJobEntry);
-      const updatedPlaylist = playlists.find(p => p.id === defaultPlaylistId);
-      const latestJobEntry = updatedPlaylist?.jobEntries[updatedPlaylist.jobEntries.length - 1];
-      if (latestJobEntry) {
-        setCurrentWorkflowJobEntry(latestJobEntry);
-        setJobEntryStatus(latestJobEntry.status);
+      const addedEntry = await addJobEntry(defaultPlaylistId, newJobEntry);
+      
+      if (addedEntry) {
+        setCurrentWorkflowJobEntry(addedEntry);
+        setJobEntryStatus(addedEntry.status);
       }
 
       setStep(3);

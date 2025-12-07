@@ -75,7 +75,7 @@ interface PodContextType {
   pods: Pod[];
   createPod: (name: string, ownerId: string, ownerName: string, ownerEmail: string) => Promise<Pod | null>;
   invitePeerToPod: (podId: string, peerEmail: string) => Promise<boolean>;
-  shareResumeInPod: (podId: string, resumeOwnerId: string, resumeOwnerName: string, versionResume: ParsedResume) => Promise<SharedResume | null>;
+  shareResumeInPod: (podId: string, resumeId: string) => Promise<SharedResume | null>;
   addCommentToSharedResume: (sharedResumeId: string, authorId: string, authorName: string, text: string, location?: string) => Promise<boolean>;
   deleteComment: (sharedResumeId: string, commentId: string, currentUserId: string, resumeOwnerId: string) => Promise<boolean>;
   getPodById: (podId: string) => Pod | undefined;
@@ -91,6 +91,7 @@ export const PodProvider = ({ children }: { children: ReactNode }) => {
   const loadPods = useCallback(async () => {
     try {
       const response = await api.get('/pods/');
+      console.log('Raw /pods/ response:', response.data);
       setPods(response.data.map(mapPod));
     } catch (error) {
       console.error('Failed to load pods:', error);

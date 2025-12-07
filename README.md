@@ -75,11 +75,3 @@ curl -X POST "http://localhost:8002/api/v1/resumes/" \
 
 - Add any necessary `.env` files for secrets and environment-specific configuration.
 - `backend/venv` and `node_modules/` are ignored via `.gitignore`.
-
----
-
-If you want, I can also:
-
-- Add a short `README` to `backend/` and `frontend/` with component-level run commands.
-- Create a GitHub Actions workflow for basic CI (lint/tests/build).
-- Add a `LICENSE` file (MIT suggested).

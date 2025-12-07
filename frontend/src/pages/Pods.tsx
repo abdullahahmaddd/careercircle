@@ -128,6 +128,15 @@ const Pods = () => {
   const userOwnedPods = pods.filter(pod => pod.ownerId === currentUser?.id);
   const userMemberPods = pods.filter(pod => pod.members.some(member => member.id === currentUser?.id) && pod.ownerId !== currentUser?.id);
 
+  console.log('Pods page - currentUser:', currentUser);
+  console.log('Pods page - all pods:', pods);
+  console.log('Pods page - userOwnedPods:', userOwnedPods);
+  if (pods.length > 0) {
+      console.log('Pods page - first pod ownerId:', pods[0].ownerId);
+      console.log('Pods page - currentUser id:', currentUser?.id);
+      console.log('Pods page - match?', pods[0].ownerId === currentUser?.id);
+  }
+
   return (
     <div className="p-4">
       <h1 className="text-3xl font-bold mb-4">Peer Pods</h1>

@@ -53,7 +53,7 @@ const mapFrontendStatusToBackend = (status: JobEntryStatus): string => {
 };
 
 const mapJobEntry = (apiEntry: any): JobEntry => ({
-  id: apiEntry.id,
+  id: apiEntry.id || apiEntry._id,
   roleTitle: apiEntry.role_title,
   applicationDeadline: apiEntry.application_deadline,
   status: mapBackendStatusToFrontend(apiEntry.status),
@@ -63,7 +63,7 @@ const mapJobEntry = (apiEntry: any): JobEntry => ({
 });
 
 const mapPlaylist = (apiPlaylist: any): Playlist => ({
-  id: apiPlaylist.id,
+  id: apiPlaylist.id || apiPlaylist._id,
   name: apiPlaylist.name,
   jobEntries: apiPlaylist.job_entries?.map(mapJobEntry) || [],
 });
@@ -72,7 +72,7 @@ const mapPlaylist = (apiPlaylist: any): Playlist => ({
 interface PlaylistContextType {
   playlists: Playlist[];
   addPlaylist: (name: string) => Promise<void>;
-  addJobEntry: (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => Promise<void>;
+  addJobEntry: (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => Promise<JobEntry | undefined>;
   updateJobEntryStatus: (playlistId: string, jobEntryId: string, newStatus: JobEntryStatus) => Promise<void>;
   updateJobEntry: (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => Promise<void>;
   deleteJobEntry: (playlistId: string, jobEntryId: string) => Promise<void>;
@@ -121,22 +121,31 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
       const payload = {
         role_title: jobEntry.roleTitle,
         status: mapFrontendStatusToBackend(jobEntry.status),
-        application_deadline: jobEntry.applicationDeadline,
+        application_deadline: jobEntry.applicationDeadline && jobEntry.applicationDeadline !== 'N/A' ? jobEntry.applicationDeadline : null,
         jd_text: jobEntry.jdText,
         parsed_jd: jobEntry.parsedJd,
       };
       const response = await api.post(`/playlists/${playlistId}/entries`, payload);
       const updatedPlaylist = mapPlaylist(response.data);
       
-      setPlaylists((prev) =>
-        prev.map((playlist) =>
-          playlist.id === playlistId ? updatedPlaylist : playlist
-        )
-      );
+      setPlaylists((prev) => {
+        const exists = prev.some(p => p.id === updatedPlaylist.id);
+        if (exists) {
+            return prev.map((playlist) =>
+              playlist.id === updatedPlaylist.id ? updatedPlaylist : playlist
+            );
+        } else {
+            return [...prev, updatedPlaylist];
+        }
+      });
       toast.success('Job entry added!');
+      
+      // Return the newly added entry (assuming it's the last one)
+      return updatedPlaylist.jobEntries[updatedPlaylist.jobEntries.length - 1];
     } catch (error) {
       console.error('Failed to add job entry:', error);
       toast.error('Failed to add job entry.');
+      return undefined;
     }
   };
 
