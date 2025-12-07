@@ -34,7 +34,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchCurrentUser = async () => {
     try {
       const response = await api.get('/auth/me');
-      setCurrentUser(response.data);
+      // Map _id to id if necessary
+      const userData = response.data;
+      const mappedUser = {
+        ...userData,
+        id: userData._id || userData.id
+      };
+      setCurrentUser(mappedUser);
       setIsAuthenticated(true);
     } catch (error) {
       console.error('Failed to fetch user:', error);

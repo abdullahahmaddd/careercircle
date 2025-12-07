@@ -21,7 +21,7 @@ export interface Resume {
 
 // Helper to map backend response to frontend interface
 const mapResume = (apiResume: any): Resume => {
-  const id = apiResume.id || apiResume._id;
+  const id = apiResume._id || apiResume.id;
   if (!id) {
     console.warn('Resume ID is missing in API response:', apiResume);
   }

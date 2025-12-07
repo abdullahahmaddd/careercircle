@@ -53,7 +53,7 @@ const mapFrontendStatusToBackend = (status: JobEntryStatus): string => {
 };
 
 const mapJobEntry = (apiEntry: any): JobEntry => ({
-  id: apiEntry.id || apiEntry._id,
+  id: apiEntry._id || apiEntry.id,
   roleTitle: apiEntry.role_title,
   applicationDeadline: apiEntry.application_deadline,
   status: mapBackendStatusToFrontend(apiEntry.status),
@@ -63,7 +63,7 @@ const mapJobEntry = (apiEntry: any): JobEntry => ({
 });
 
 const mapPlaylist = (apiPlaylist: any): Playlist => ({
-  id: apiPlaylist.id || apiPlaylist._id,
+  id: apiPlaylist._id || apiPlaylist.id,
   name: apiPlaylist.name,
   jobEntries: apiPlaylist.job_entries?.map(mapJobEntry) || [],
 });

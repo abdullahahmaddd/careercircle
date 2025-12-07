@@ -286,7 +286,7 @@ const FirstApplicationWorkflow = () => {
 
     // If no pod is selected AND the user has no existing pods, create a new one.
     if (!targetPodId && userOwnedPods.length === 0) {
-      const newPod = await createPod(`${currentUser.name}'s CareerCircle Pod`, currentUser.id, currentUser.name, currentUser.email);
+      const newPod = await createPod(`${currentUser.name}'s CareerCircle Pod`);
       if (newPod) {
         targetPodId = newPod.id;
         toast.info(`Created a new Pod: "${newPod.name}" for you.`);

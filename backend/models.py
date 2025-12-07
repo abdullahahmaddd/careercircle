@@ -158,6 +158,7 @@ class PodCreate(PodBase):
 class PodInDB(PodBase):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     owner_id: str
+    owner_name: Optional[str] = None
     members: List[PodMember] = Field(default_factory=list)
     shared_resumes: List[SharedResume] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)

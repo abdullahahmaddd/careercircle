@@ -31,10 +31,18 @@ async def list_pods(current_user: UserInDB = Depends(get_current_user)):
 async def create_pod(pod: PodCreate, current_user: UserInDB = Depends(get_current_user)):
     db = get_database()
     
+    # Add owner to members list automatically
+    owner_member = PodMember(
+        id=str(current_user.id),
+        name=current_user.name,
+        email=current_user.email
+    )
+
     pod_data = {
         "owner_id": str(current_user.id),
+        "owner_name": current_user.name,
         "name": pod.name,
-        "members": [],
+        "members": [owner_member.model_dump()],
         "shared_resumes": [],
         "created_at": datetime.utcnow()
     }

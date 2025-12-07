@@ -65,7 +65,7 @@ const Pods = () => {
 
   const handleCreatePod = async () => {
     if (!newPodName.trim() || !currentUser) return;
-    await createPod(newPodName, currentUser.id, currentUser.name, currentUser.email);
+    await createPod(newPodName);
     setNewPodName("");
     setIsCreatePodDialogOpen(false);
   };
@@ -258,7 +258,7 @@ const Pods = () => {
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" /> {pod.name}
                 </CardTitle>
-                <CardDescription>Owner: {pod.members.find(m => m.id === pod.ownerId)?.name || 'Unknown'}</CardDescription>
+                <CardDescription>Owner: {pod.ownerName || 'Unknown'}</CardDescription>
               </CardHeader>
               <CardContent>
                 <h3 className="font-medium mb-2">Members ({pod.members.length})</h3>

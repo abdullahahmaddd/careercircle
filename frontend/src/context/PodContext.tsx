@@ -29,6 +29,7 @@ export interface SharedResume {
 export interface Pod {
   id: string;
   ownerId: string;
+  ownerName: string;
   name: string;
   members: { id: string; name: string; email: string }[]; // Simplified member info
   sharedResumes: SharedResume[];
@@ -62,8 +63,9 @@ const mapMember = (m: any) => ({
 });
 
 const mapPod = (p: any): Pod => ({
-  id: p.id,
+  id: p._id || p.id,
   ownerId: p.owner_id,
+  ownerName: p.owner_name,
   name: p.name,
   members: p.members ? p.members.map(mapMember) : [],
   sharedResumes: p.shared_resumes ? p.shared_resumes.map((sr: any) => mapSharedResume(sr, p.id)) : [],
@@ -73,7 +75,7 @@ const mapPod = (p: any): Pod => ({
 // Define the shape of the context
 interface PodContextType {
   pods: Pod[];
-  createPod: (name: string, ownerId: string, ownerName: string, ownerEmail: string) => Promise<Pod | null>;
+  createPod: (name: string) => Promise<Pod | null>;
   invitePeerToPod: (podId: string, peerEmail: string) => Promise<boolean>;
   shareResumeInPod: (podId: string, resumeId: string) => Promise<SharedResume | null>;
   addCommentToSharedResume: (sharedResumeId: string, authorId: string, authorName: string, text: string, location?: string) => Promise<boolean>;
@@ -107,7 +109,7 @@ export const PodProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [isAuthenticated, loadPods]);
 
-  const createPod = async (name: string, ownerId: string, ownerName: string, ownerEmail: string): Promise<Pod | null> => {
+  const createPod = async (name: string): Promise<Pod | null> => {
     try {
       const response = await api.post('/pods/', { name });
       const newPod = mapPod(response.data);
