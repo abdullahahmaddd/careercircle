@@ -1,7 +1,10 @@
 "use client";
 
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 import { ParsedJobDescription } from '@/utils/jdParser';
+import api from '@/lib/api';
+import { useAuth } from './AuthContext';
+import { toast } from 'sonner';
 
 // Define types for JobEntry and Playlist
 export type JobEntryStatus = 'Not started' | 'Draft ready' | 'Applied' | 'Interviewing' | 'Offer';
@@ -25,107 +28,188 @@ export interface Playlist {
   jobEntries: JobEntry[];
 }
 
+// Map backend status to frontend status
+const mapBackendStatusToFrontend = (status: string): JobEntryStatus => {
+  switch (status) {
+    case 'wishlist': return 'Not started';
+    case 'applied': return 'Applied';
+    case 'interviewing': return 'Interviewing';
+    case 'offer': return 'Offer';
+    case 'rejected': return 'Applied'; // Map rejected to Applied for now as frontend lacks Rejected state
+    default: return 'Not started';
+  }
+};
+
+// Map frontend status to backend status
+const mapFrontendStatusToBackend = (status: JobEntryStatus): string => {
+  switch (status) {
+    case 'Not started': return 'wishlist';
+    case 'Draft ready': return 'wishlist'; // Backend doesn't distinguish
+    case 'Applied': return 'applied';
+    case 'Interviewing': return 'interviewing';
+    case 'Offer': return 'offer';
+    default: return 'wishlist';
+  }
+};
+
+const mapJobEntry = (apiEntry: any): JobEntry => ({
+  id: apiEntry.id,
+  roleTitle: apiEntry.role_title,
+  applicationDeadline: apiEntry.application_deadline,
+  status: mapBackendStatusToFrontend(apiEntry.status),
+  jdText: apiEntry.jd_text,
+  parsedJd: apiEntry.parsed_jd,
+  createdAt: apiEntry.created_at,
+});
+
+const mapPlaylist = (apiPlaylist: any): Playlist => ({
+  id: apiPlaylist.id,
+  name: apiPlaylist.name,
+  jobEntries: apiPlaylist.job_entries?.map(mapJobEntry) || [],
+});
+
 // Define the shape of the context
 interface PlaylistContextType {
   playlists: Playlist[];
-  addPlaylist: (name: string) => void;
-  addJobEntry: (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => void;
-  updateJobEntryStatus: (playlistId: string, jobEntryId: string, newStatus: JobEntryStatus) => void;
-  updateJobEntry: (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => void;
-  deleteJobEntry: (playlistId: string, jobEntryId: string) => void;
-  deletePlaylist: (playlistId: string) => void;
+  addPlaylist: (name: string) => Promise<void>;
+  addJobEntry: (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => Promise<void>;
+  updateJobEntryStatus: (playlistId: string, jobEntryId: string, newStatus: JobEntryStatus) => Promise<void>;
+  updateJobEntry: (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => Promise<void>;
+  deleteJobEntry: (playlistId: string, jobEntryId: string) => Promise<void>;
+  deletePlaylist: (playlistId: string) => Promise<void>;
   hasUpcomingDeadlines: boolean; // New: Flag for upcoming deadlines
 }
 
 const PlaylistContext = createContext<PlaylistContextType | undefined>(undefined);
 
-export const PlaylistProvider = ({ children }: { ReactNode }) => {
-  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
-    // Initialize from localStorage or with a default playlist
-    if (typeof window !== 'undefined') {
-      const savedPlaylists = localStorage.getItem('careerCirclePlaylists');
-      if (savedPlaylists) {
-        return JSON.parse(savedPlaylists);
-      }
+export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
+  const { isAuthenticated } = useAuth();
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+
+  const loadPlaylists = useCallback(async () => {
+    try {
+      const response = await api.get('/playlists/');
+      setPlaylists(response.data.map(mapPlaylist));
+    } catch (error) {
+      console.error('Failed to load playlists:', error);
+      toast.error('Failed to load playlists.');
     }
-    return [{ id: 'default-playlist', name: 'My First Applications', jobEntries: [] }];
-  });
+  }, []);
 
   useEffect(() => {
-    // Save playlists to localStorage whenever they change
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('careerCirclePlaylists', JSON.stringify(playlists));
+    if (isAuthenticated) {
+      loadPlaylists();
+    } else {
+      setPlaylists([]);
     }
-  }, [playlists]);
+  }, [isAuthenticated, loadPlaylists]);
 
-  const addPlaylist = (name: string) => {
-    setPlaylists((prev) => [
-      ...prev,
-      { id: `playlist-${Date.now()}`, name, jobEntries: [] },
-    ]);
+  const addPlaylist = async (name: string) => {
+    try {
+      const response = await api.post('/playlists/', { name });
+      const newPlaylist = mapPlaylist(response.data);
+      setPlaylists((prev) => [...prev, newPlaylist]);
+      toast.success(`Playlist "${name}" created!`);
+    } catch (error) {
+      console.error('Failed to create playlist:', error);
+      toast.error('Failed to create playlist.');
+    }
   };
 
-  const addJobEntry = (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => {
-    setPlaylists((prev) =>
-      prev.map((playlist) =>
-        playlist.id === playlistId
-          ? {
-              ...playlist,
-              jobEntries: [
-                ...playlist.jobEntries,
-                { ...jobEntry, id: `job-${Date.now()}`, createdAt: new Date().toISOString() },
-              ],
-            }
-          : playlist,
-      ),
-    );
+  const addJobEntry = async (playlistId: string, jobEntry: Omit<JobEntry, 'id' | 'createdAt'>) => {
+    try {
+      const payload = {
+        role_title: jobEntry.roleTitle,
+        status: mapFrontendStatusToBackend(jobEntry.status),
+        application_deadline: jobEntry.applicationDeadline,
+        jd_text: jobEntry.jdText,
+        parsed_jd: jobEntry.parsedJd,
+      };
+      const response = await api.post(`/playlists/${playlistId}/entries`, payload);
+      const updatedPlaylist = mapPlaylist(response.data);
+      
+      setPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === playlistId ? updatedPlaylist : playlist
+        )
+      );
+      toast.success('Job entry added!');
+    } catch (error) {
+      console.error('Failed to add job entry:', error);
+      toast.error('Failed to add job entry.');
+    }
   };
 
-  const updateJobEntryStatus = (playlistId: string, jobEntryId: string, newStatus: JobEntryStatus) => {
-    setPlaylists((prev) =>
-      prev.map((playlist) =>
-        playlist.id === playlistId
-          ? {
-              ...playlist,
-              jobEntries: playlist.jobEntries.map((job) =>
-                job.id === jobEntryId ? { ...job, status: newStatus } : job,
-              ),
-            }
-          : playlist,
-      ),
-    );
+  const updateJobEntryStatus = async (playlistId: string, jobEntryId: string, newStatus: JobEntryStatus) => {
+    try {
+      const payload = {
+        status: mapFrontendStatusToBackend(newStatus),
+      };
+      const response = await api.patch(`/playlists/${playlistId}/entries/${jobEntryId}`, payload);
+      const updatedPlaylist = mapPlaylist(response.data);
+
+      setPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === playlistId ? updatedPlaylist : playlist
+        )
+      );
+      toast.success('Status updated!');
+    } catch (error) {
+      console.error('Failed to update job status:', error);
+      toast.error('Failed to update status.');
+    }
   };
 
-  const updateJobEntry = (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => {
-    setPlaylists((prev) =>
-      prev.map((playlist) =>
-        playlist.id === playlistId
-          ? {
-              ...playlist,
-              jobEntries: playlist.jobEntries.map((job) =>
-                job.id === jobEntryId ? { ...job, ...updatedFields } : job,
-              ),
-            }
-          : playlist,
-      ),
-    );
+  const updateJobEntry = async (playlistId: string, jobEntryId: string, updatedFields: Partial<JobEntry>) => {
+    try {
+      const payload: any = {};
+      if (updatedFields.roleTitle) payload.role_title = updatedFields.roleTitle;
+      if (updatedFields.status) payload.status = mapFrontendStatusToBackend(updatedFields.status);
+      if (updatedFields.applicationDeadline) payload.application_deadline = updatedFields.applicationDeadline;
+      if (updatedFields.jdText) payload.jd_text = updatedFields.jdText;
+      if (updatedFields.parsedJd) payload.parsed_jd = updatedFields.parsedJd;
+
+      const response = await api.patch(`/playlists/${playlistId}/entries/${jobEntryId}`, payload);
+      const updatedPlaylist = mapPlaylist(response.data);
+
+      setPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === playlistId ? updatedPlaylist : playlist
+        )
+      );
+      toast.success('Job entry updated!');
+    } catch (error) {
+      console.error('Failed to update job entry:', error);
+      toast.error('Failed to update job entry.');
+    }
   };
 
-  const deleteJobEntry = (playlistId: string, jobEntryId: string) => {
-    setPlaylists((prev) =>
-      prev.map((playlist) =>
-        playlist.id === playlistId
-          ? {
-              ...playlist,
-              jobEntries: playlist.jobEntries.filter((job) => job.id !== jobEntryId),
-            }
-          : playlist,
-      ),
-    );
+  const deleteJobEntry = async (playlistId: string, jobEntryId: string) => {
+    try {
+      const response = await api.delete(`/playlists/${playlistId}/entries/${jobEntryId}`);
+      const updatedPlaylist = mapPlaylist(response.data);
+
+      setPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === playlistId ? updatedPlaylist : playlist
+        )
+      );
+      toast.success('Job entry deleted.');
+    } catch (error) {
+      console.error('Failed to delete job entry:', error);
+      toast.error('Failed to delete job entry.');
+    }
   };
 
-  const deletePlaylist = (playlistId: string) => {
-    setPlaylists((prev) => prev.filter((playlist) => playlist.id !== playlistId));
+  const deletePlaylist = async (playlistId: string) => {
+    try {
+      await api.delete(`/playlists/${playlistId}`);
+      setPlaylists((prev) => prev.filter((playlist) => playlist.id !== playlistId));
+      toast.success('Playlist deleted.');
+    } catch (error) {
+      console.error('Failed to delete playlist:', error);
+      toast.error('Failed to delete playlist.');
+    }
   };
 
   // Calculate hasUpcomingDeadlines

@@ -306,7 +306,7 @@ const FirstApplicationWorkflow = () => {
         await invitePeerToPod(targetPodId, peerEmailToInvite);
       }
       // Ensure the resume shared is the *current edited version content*
-      await shareResumeInPod(targetPodId, currentUser.id, currentUser.name, currentEditedVersionContent);
+      await shareResumeInPod(targetPodId, versionResumeIdForSync);
       setShowInvitePodDialog(false);
       setPeerEmailToInvite("");
       setSelectedPodId(undefined);

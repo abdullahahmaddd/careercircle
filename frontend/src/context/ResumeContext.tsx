@@ -4,6 +4,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode, useCa
 import { toast } from 'sonner';
 import { ParsedResume } from '@/utils/resumeParser';
 import { useAuth } from './AuthContext'; // To get current user ID
+import api from '@/lib/api';
 
 // Define Resume entity interface
 export interface Resume {
@@ -18,14 +19,33 @@ export interface Resume {
   jobDescriptionId?: string; // For version resumes, links to a specific JD if tailored
 }
 
+// Helper to map backend response to frontend interface
+const mapResume = (apiResume: any): Resume => {
+  const id = apiResume.id || apiResume._id;
+  if (!id) {
+    console.warn('Resume ID is missing in API response:', apiResume);
+  }
+  return {
+    id: id,
+    userId: apiResume.user_id,
+    type: apiResume.type,
+    name: apiResume.name,
+    content: apiResume.content,
+    createdAt: apiResume.created_at,
+    lastModifiedAt: apiResume.last_modified_at,
+    sourceMasterId: apiResume.source_master_id,
+    jobDescriptionId: apiResume.job_description_id,
+  };
+};
+
 // Define the shape of the context
 interface ResumeContextType {
   masterResume: Resume | null;
   versionResumes: Resume[];
   loadUserResumes: (userId: string) => void;
-  saveMasterResume: (userId: string, resumeContent: ParsedResume) => Promise<Resume>;
-  updateMasterResumeContent: (userId: string, resumeContent: ParsedResume) => Promise<Resume>;
-  createVersionResume: (userId: string, masterResumeId: string, name: string, content: ParsedResume, jobDescriptionId?: string) => Promise<Resume>;
+  saveMasterResume: (userId: string, resumeContent: ParsedResume) => Promise<Resume | null>;
+  updateMasterResumeContent: (userId: string, resumeContent: ParsedResume) => Promise<Resume | null>;
+  createVersionResume: (userId: string, masterResumeId: string, name: string, content: ParsedResume, jobDescriptionId?: string) => Promise<Resume | null>;
   updateVersionResumeContent: (versionResumeId: string, resumeContent: ParsedResume) => Promise<Resume | null>;
   deleteResume: (resumeId: string) => Promise<boolean>;
   syncVersionToMaster: (versionResumeId: string) => Promise<boolean>;
@@ -39,20 +59,18 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
   const [masterResume, setMasterResume] = useState<Resume | null>(null);
   const [versionResumes, setVersionResumes] = useState<Resume[]>([]);
 
-  // Helper to get all resumes from localStorage for a user
-  const getResumesFromLocalStorage = useCallback((userId: string): Resume[] => {
-    if (typeof window === 'undefined') return [];
-    const allResumes: Resume[] = JSON.parse(localStorage.getItem('careerCircleResumes') || '[]');
-    return allResumes.filter(r => r.userId === userId);
+  const loadUserResumes = useCallback(async (userId: string) => {
+    try {
+      const response = await api.get('/resumes/');
+      console.log('Fetched resumes response:', response.data);
+      const resumes = response.data.map(mapResume);
+      setMasterResume(resumes.find((r: Resume) => r.type === 'master') || null);
+      setVersionResumes(resumes.filter((r: Resume) => r.type === 'version'));
+    } catch (error) {
+      console.error('Failed to load resumes:', error);
+      toast.error('Failed to load resumes.');
+    }
   }, []);
-
-  // Helper to save all resumes to localStorage
-  const saveAllResumesToLocalStorage = useCallback((allUserResumes: Resume[]) => {
-    if (typeof window === 'undefined') return;
-    const existingGlobalResumes: Resume[] = JSON.parse(localStorage.getItem('careerCircleResumes') || '[]');
-    const otherUsersResumes = existingGlobalResumes.filter(r => r.userId !== currentUser?.id);
-    localStorage.setItem('careerCircleResumes', JSON.stringify([...otherUsersResumes, ...allUserResumes]));
-  }, [currentUser]);
 
   // Load user resumes on component mount or currentUser change
   useEffect(() => {
@@ -62,139 +80,145 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
       setMasterResume(null);
       setVersionResumes([]);
     }
-  }, [currentUser]); // Removed getResumesFromLocalStorage from dependency array to avoid infinite loop
+  }, [currentUser, loadUserResumes]);
 
-  const loadUserResumes = useCallback((userId: string) => {
-    const userResumes = getResumesFromLocalStorage(userId);
-    setMasterResume(userResumes.find(r => r.type === 'master') || null);
-    setVersionResumes(userResumes.filter(r => r.type === 'version'));
-  }, [getResumesFromLocalStorage]);
-
-  const saveMasterResume = async (userId: string, resumeContent: ParsedResume): Promise<Resume> => {
-    const newMaster: Resume = {
-      id: `master-${Date.now()}`,
-      userId,
-      type: 'master',
-      name: 'Master Resume',
-      content: resumeContent,
-      createdAt: new Date().toISOString(),
-      lastModifiedAt: new Date().toISOString(),
-    };
-    setMasterResume(newMaster);
-    setVersionResumes(prev => {
-      saveAllResumesToLocalStorage([...prev, newMaster]);
-      return prev;
-    });
-    toast.success("Master Resume created!");
-    return newMaster;
-  };
-
-  const updateMasterResumeContent = async (userId: string, resumeContent: ParsedResume): Promise<Resume> => {
-    if (!masterResume || masterResume.userId !== userId) {
-      throw new Error("Master resume not found or unauthorized.");
+  const saveMasterResume = async (userId: string, resumeContent: ParsedResume): Promise<Resume | null> => {
+    try {
+      const payload = {
+        name: 'Master Resume',
+        content: resumeContent,
+        type: 'master',
+      };
+      const response = await api.post('/resumes/', payload);
+      const newMaster = mapResume(response.data);
+      setMasterResume(newMaster);
+      toast.success("Master Resume created!");
+      return newMaster;
+    } catch (error) {
+      console.error('Failed to create master resume:', error);
+      toast.error('Failed to create Master Resume.');
+      return null;
     }
-    const updatedMaster = { ...masterResume, content: resumeContent, lastModifiedAt: new Date().toISOString() };
-    setMasterResume(updatedMaster);
-    setVersionResumes(prev => {
-      saveAllResumesToLocalStorage([...prev, updatedMaster]);
-      return prev;
-    });
-    toast.success("Master Resume updated!");
-    return updatedMaster;
   };
 
-  const createVersionResume = async (userId: string, masterResumeId: string, name: string, content: ParsedResume, jobDescriptionId?: string): Promise<Resume> => {
-    const newVersion: Resume = {
-      id: `version-${Date.now()}`,
-      userId,
-      type: 'version',
-      name,
-      content,
-      createdAt: new Date().toISOString(),
-      lastModifiedAt: new Date().toISOString(),
-      sourceMasterId: masterResumeId,
-      jobDescriptionId,
-    };
-    setVersionResumes(prev => {
-      const updatedVersions = [...prev, newVersion];
-      saveAllResumesToLocalStorage([...(masterResume ? [masterResume] : []), ...updatedVersions]);
-      return updatedVersions;
-    });
-    toast.success(`Version Resume "${name}" created!`);
-    return newVersion;
+  const updateMasterResumeContent = async (userId: string, resumeContent: ParsedResume): Promise<Resume | null> => {
+    if (!masterResume) {
+      toast.error("Master resume not found.");
+      return null;
+    }
+    if (!masterResume.id) {
+      console.error("Master resume ID is undefined", masterResume);
+      toast.error("Cannot update master resume: ID is missing.");
+      return null;
+    }
+    try {
+      const payload = {
+        content: resumeContent,
+      };
+      const response = await api.put(`/resumes/${masterResume.id}`, payload);
+      const updatedMaster = mapResume(response.data);
+      setMasterResume(updatedMaster);
+      toast.success("Master Resume updated!");
+      return updatedMaster;
+    } catch (error) {
+      console.error('Failed to update master resume:', error);
+      toast.error('Failed to update Master Resume.');
+      return null;
+    }
+  };
+
+  const createVersionResume = async (userId: string, masterResumeId: string, name: string, content: ParsedResume, jobDescriptionId?: string): Promise<Resume | null> => {
+    try {
+      const payload = {
+        name,
+        content,
+        type: 'version',
+        source_master_id: masterResumeId,
+        job_description_id: jobDescriptionId,
+      };
+      const response = await api.post('/resumes/', payload);
+      const newVersion = mapResume(response.data);
+      setVersionResumes(prev => [...prev, newVersion]);
+      toast.success(`Version Resume "${name}" created!`);
+      return newVersion;
+    } catch (error) {
+      console.error('Failed to create version resume:', error);
+      toast.error('Failed to create Version Resume.');
+      return null;
+    }
   };
 
   const updateVersionResumeContent = async (versionResumeId: string, resumeContent: ParsedResume): Promise<Resume | null> => {
-    let updatedVersion: Resume | null = null;
-    setVersionResumes(prev => {
-      const newVersions = prev.map(r => {
-        if (r.id === versionResumeId && r.userId === currentUser?.id) {
-          updatedVersion = { ...r, content: resumeContent, lastModifiedAt: new Date().toISOString() };
-          return updatedVersion;
-        }
-        return r;
-      });
-      saveAllResumesToLocalStorage([...(masterResume ? [masterResume] : []), ...newVersions]);
-      return newVersions;
-    });
-    if (updatedVersion) {
+    try {
+      const payload = {
+        content: resumeContent,
+      };
+      const response = await api.put(`/resumes/${versionResumeId}`, payload);
+      const updatedVersion = mapResume(response.data);
+      
+      setVersionResumes(prev => prev.map(r => r.id === versionResumeId ? updatedVersion : r));
+      
       toast.success(`Version Resume "${updatedVersion.name}" updated!`);
-    } else {
-      toast.error("Failed to update version resume.");
+      return updatedVersion;
+    } catch (error) {
+      console.error('Failed to update version resume:', error);
+      toast.error('Failed to update Version Resume.');
+      return null;
     }
-    return updatedVersion;
   };
 
   const deleteResume = async (resumeId: string): Promise<boolean> => {
-    if (!currentUser) {
-      toast.error("You must be logged in to delete resumes.");
-      return false;
-    }
-
     const resumeToDelete = getResumeById(resumeId);
-    if (!resumeToDelete || resumeToDelete.userId !== currentUser.id) {
-      toast.error("Resume not found or unauthorized to delete.");
+    if (!resumeToDelete) {
+      toast.error("Resume not found.");
       return false;
     }
 
-    if (resumeToDelete.type === 'master') {
-      // Delete master and all associated versions
-      setMasterResume(null);
-      setVersionResumes([]);
-      saveAllResumesToLocalStorage([]); // Clear all user resumes
-      toast.success("Master Resume and all versions deleted.");
-    } else {
-      // Delete only the specific version
-      setVersionResumes(prev => {
-        const newVersions = prev.filter(r => r.id !== resumeId);
-        saveAllResumesToLocalStorage([...(masterResume ? [masterResume] : []), ...newVersions]);
-        return newVersions;
-      });
-      toast.success(`Version Resume "${resumeToDelete.name}" deleted.`);
+    try {
+      await api.delete(`/resumes/${resumeId}`);
+      
+      if (resumeToDelete.type === 'master') {
+        setMasterResume(null);
+        // Assuming backend handles cascading delete of versions if master is deleted,
+        // or we need to refresh list. For now, let's clear local versions too if that's the logic.
+        // Actually, normally deleting master might not delete versions automatically unless backend does it.
+        // But if master is gone, versions linked to it might need handling.
+        // Let's reload to be safe or just clear.
+        setVersionResumes([]);
+        // Ideally we should reload
+        loadUserResumes(currentUser!.id);
+      } else {
+        setVersionResumes(prev => prev.filter(r => r.id !== resumeId));
+      }
+
+      toast.success(`Resume deleted.`);
+      return true;
+    } catch (error) {
+      console.error('Failed to delete resume:', error);
+      toast.error('Failed to delete resume.');
+      return false;
     }
-    return true;
   };
 
   const syncVersionToMaster = async (versionResumeId: string): Promise<boolean> => {
-    if (!currentUser || !masterResume) {
-      toast.error("Master Resume not found or user not logged in.");
+    if (!masterResume) {
+      toast.error("Master Resume not found.");
       return false;
     }
 
-    const version = versionResumes.find(r => r.id === versionResumeId && r.userId === currentUser.id);
+    const version = versionResumes.find(r => r.id === versionResumeId);
     if (!version) {
-      toast.error("Version Resume not found or unauthorized.");
+      toast.error("Version Resume not found.");
       return false;
     }
 
-    const updatedMaster = { ...masterResume, content: version.content, lastModifiedAt: new Date().toISOString() };
-    setMasterResume(updatedMaster);
-    setVersionResumes(prev => {
-      saveAllResumesToLocalStorage([...prev, updatedMaster]);
-      return prev;
-    });
-    toast.success(`Changes from "${version.name}" synced to Master Resume!`);
-    return true;
+    // Call updateMasterResumeContent with the version's content
+    const result = await updateMasterResumeContent(masterResume.userId, version.content);
+    if (result) {
+      toast.success(`Changes from "${version.name}" synced to Master Resume!`);
+      return true;
+    }
+    return false;
   };
 
   const getResumeById = (resumeId: string): Resume | undefined => {

@@ -91,7 +91,7 @@ const Pods = () => {
       return;
     }
 
-    await shareResumeInPod(selectedPodToShare, currentUser.id, currentUser.name, versionResumeToShare.content);
+    await shareResumeInPod(selectedPodToShare, selectedVersionResumeIdToShare);
     setSelectedVersionResumeIdToShare(undefined);
     setSelectedPodToShare(undefined);
     setIsShareResumeDialogOpen(false);

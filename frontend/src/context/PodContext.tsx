@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 import { toast } from 'sonner';
 import { ParsedResume } from '@/utils/resumeParser'; // Assuming ParsedResume is available
+import api from '@/lib/api';
+import { useAuth } from './AuthContext';
 
 // Define types for Pods, Shared Resumes, and Comments
 export interface Comment {
@@ -33,6 +35,41 @@ export interface Pod {
   createdAt: string;
 }
 
+// Helpers for data mapping
+const mapComment = (c: any): Comment => ({
+  id: c.id,
+  authorId: c.author_id,
+  authorName: c.author_name,
+  text: c.text,
+  location: c.location,
+  createdAt: c.created_at,
+});
+
+const mapSharedResume = (sr: any, podId: string): SharedResume => ({
+  id: sr.id,
+  podId: podId,
+  resumeOwnerId: sr.resume_owner_id,
+  resumeOwnerName: sr.resume_owner_name,
+  versionResume: sr.version_resume,
+  sharedDate: sr.shared_date,
+  comments: sr.comments ? sr.comments.map(mapComment) : [],
+});
+
+const mapMember = (m: any) => ({
+  id: m.id,
+  name: m.name,
+  email: m.email,
+});
+
+const mapPod = (p: any): Pod => ({
+  id: p.id,
+  ownerId: p.owner_id,
+  name: p.name,
+  members: p.members ? p.members.map(mapMember) : [],
+  sharedResumes: p.shared_resumes ? p.shared_resumes.map((sr: any) => mapSharedResume(sr, p.id)) : [],
+  createdAt: p.created_at,
+});
+
 // Define the shape of the context
 interface PodContextType {
   pods: Pod[];
@@ -48,140 +85,112 @@ interface PodContextType {
 const PodContext = createContext<PodContextType | undefined>(undefined);
 
 export const PodProvider = ({ children }: { children: ReactNode }) => {
-  const [pods, setPods] = useState<Pod[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedPods = localStorage.getItem('careerCirclePods');
-      return savedPods ? JSON.parse(savedPods) : [];
+  const { isAuthenticated } = useAuth();
+  const [pods, setPods] = useState<Pod[]>([]);
+
+  const loadPods = useCallback(async () => {
+    try {
+      const response = await api.get('/pods/');
+      setPods(response.data.map(mapPod));
+    } catch (error) {
+      console.error('Failed to load pods:', error);
+      toast.error('Failed to load pods.');
     }
-    return [];
-  });
+  }, []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('careerCirclePods', JSON.stringify(pods));
+    if (isAuthenticated) {
+      loadPods();
+    } else {
+      setPods([]);
     }
-  }, [pods]);
+  }, [isAuthenticated, loadPods]);
 
   const createPod = async (name: string, ownerId: string, ownerName: string, ownerEmail: string): Promise<Pod | null> => {
-    const newPod: Pod = {
-      id: `pod-${Date.now()}`,
-      ownerId,
-      name,
-      members: [{ id: ownerId, name: ownerName, email: ownerEmail }],
-      sharedResumes: [],
-      createdAt: new Date().toISOString(),
-    };
-    setPods((prev) => [...prev, newPod]);
-    toast.success(`Pod "${name}" created!`);
-    return newPod;
+    try {
+      const response = await api.post('/pods/', { name });
+      const newPod = mapPod(response.data);
+      setPods((prev) => [...prev, newPod]);
+      toast.success(`Pod "${name}" created!`);
+      return newPod;
+    } catch (error) {
+      console.error('Failed to create pod:', error);
+      toast.error('Failed to create pod.');
+      return null;
+    }
   };
 
   const invitePeerToPod = async (podId: string, peerEmail: string): Promise<boolean> => {
-    // Mock: In a real app, this would send an email invitation and handle acceptance.
-    // For now, we'll just add the peer to the pod directly if they "accept" (mock).
-    const storedUsers = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-    const peerUser = storedUsers.find((u: any) => u.email === peerEmail);
-
-    if (!peerUser) {
-      toast.error(`No user found with email: ${peerEmail}.`);
+    try {
+      const response = await api.post(`/pods/${podId}/invite`, { email: peerEmail });
+      const updatedPod = mapPod(response.data);
+      setPods((prev) => prev.map(p => p.id === podId ? updatedPod : p));
+      toast.success(`Invitation sent to ${peerEmail}`);
+      return true;
+    } catch (error: any) {
+      console.error('Failed to invite peer:', error);
+      toast.error(error.response?.data?.detail || 'Failed to invite peer.');
       return false;
     }
-
-    setPods((prev) =>
-      prev.map((pod) => {
-        if (pod.id === podId) {
-          if (pod.members.some(m => m.id === peerUser.id)) {
-            toast.info(`${peerUser.name} is already a member of "${pod.name}".`);
-            return pod;
-          }
-          toast.success(`Mock: Invitation sent to ${peerUser.name} for "${pod.name}".`);
-          // For mock, directly add to members
-          return {
-            ...pod,
-            members: [...pod.members, { id: peerUser.id, name: peerUser.name, email: peerUser.email }],
-          };
-        }
-        return pod;
-      }),
-    );
-    return true;
   };
 
-  const shareResumeInPod = async (podId: string, resumeOwnerId: string, resumeOwnerName: string, versionResume: ParsedResume): Promise<SharedResume | null> => {
-    const newSharedResume: SharedResume = {
-      id: `shared-resume-${Date.now()}`,
-      podId,
-      resumeOwnerId,
-      resumeOwnerName,
-      versionResume,
-      sharedDate: new Date().toISOString(),
-      comments: [],
-    };
-
-    setPods((prev) =>
-      prev.map((pod) =>
-        pod.id === podId
-          ? { ...pod, sharedResumes: [...pod.sharedResumes, newSharedResume] }
-          : pod,
-      ),
-    );
-    toast.success(`Resume shared in Pod "${getPodById(podId)?.name || ''}"!`);
-    return newSharedResume;
+  const shareResumeInPod = async (podId: string, resumeId: string): Promise<SharedResume | null> => {
+    try {
+      const response = await api.post(`/pods/${podId}/share`, { resume_id: resumeId });
+      const updatedPod = mapPod(response.data);
+      setPods((prev) => prev.map(p => p.id === podId ? updatedPod : p));
+      
+      // Find the new shared resume to return
+      // Better: return the last shared resume
+      const lastShared = updatedPod.sharedResumes[updatedPod.sharedResumes.length - 1];
+      
+      toast.success(`Resume shared in Pod!`);
+      return lastShared;
+    } catch (error: any) {
+      console.error('Failed to share resume:', error);
+      toast.error(error.response?.data?.detail || 'Failed to share resume.');
+      return null;
+    }
   };
 
   const addCommentToSharedResume = async (sharedResumeId: string, authorId: string, authorName: string, text: string, location?: string): Promise<boolean> => {
-    const newComment: Comment = {
-      id: `comment-${Date.now()}`,
-      authorId,
-      authorName,
-      text,
-      location,
-      createdAt: new Date().toISOString(),
-    };
-
-    setPods((prev) =>
-      prev.map((pod) => ({
-        ...pod,
-        sharedResumes: pod.sharedResumes.map((sr) =>
-          sr.id === sharedResumeId
-            ? { ...sr, comments: [...sr.comments, newComment] }
-            : sr,
-        ),
-      })),
-    );
-    toast.info(`New comment added by ${authorName}.`); // In-app notification (FR-007)
-    // Mock email notification (FR-007)
-    console.log(`Mock: Email notification sent for new comment on shared resume ${sharedResumeId}.`);
-    return true;
+     // Backend only needs text and location. author info comes from token.
+     // We need to find the podId for this sharedResumeId.
+     // The context has `getSharedResumeById` but it doesn't give podId efficiently without searching.
+     // But we can search.
+     
+     const pod = pods.find(p => p.sharedResumes.some(sr => sr.id === sharedResumeId));
+     if (!pod) {
+         toast.error("Pod not found for this resume.");
+         return false;
+     }
+     
+     try {
+         const response = await api.post(`/pods/${pod.id}/shared/${sharedResumeId}/comments`, { text, location });
+         const updatedPod = mapPod(response.data);
+         setPods((prev) => prev.map(p => p.id === pod.id ? updatedPod : p));
+         toast.success("Comment added!");
+         return true;
+     } catch (error) {
+         console.error('Failed to add comment:', error);
+         toast.error('Failed to add comment.');
+         return false;
+     }
   };
 
   const deleteComment = async (sharedResumeId: string, commentId: string, currentUserId: string, resumeOwnerId: string): Promise<boolean> => {
-    let commentDeleted = false;
-    setPods((prev) =>
-      prev.map((pod) => ({
-        ...pod,
-        sharedResumes: pod.sharedResumes.map((sr) => {
-          if (sr.id === sharedResumeId) {
-            const updatedComments = sr.comments.filter(comment => {
-              // Only allow deletion if current user is the author or the resume owner
-              if (comment.id === commentId && (comment.authorId === currentUserId || resumeOwnerId === currentUserId)) {
-                commentDeleted = true;
-                return false; // Remove this comment
-              }
-              return true; // Keep other comments
-            });
-            return { ...sr, comments: updatedComments };
-          }
-          return sr;
-        }),
-      })),
-    );
+     const pod = pods.find(p => p.sharedResumes.some(sr => sr.id === sharedResumeId));
+     if (!pod) return false;
 
-    if (commentDeleted) {
-      toast.success("Comment deleted successfully.");
+    try {
+      const response = await api.delete(`/pods/${pod.id}/shared/${sharedResumeId}/comments/${commentId}`);
+      const updatedPod = mapPod(response.data);
+      setPods((prev) => prev.map(p => p.id === pod.id ? updatedPod : p));
+      toast.success("Comment deleted.");
       return true;
-    } else {
-      toast.error("Failed to delete comment. You might not have permission.");
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+      toast.error('Failed to delete comment.');
       return false;
     }
   };

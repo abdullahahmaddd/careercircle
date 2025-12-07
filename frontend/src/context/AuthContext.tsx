@@ -2,17 +2,14 @@
 
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Resume } from './ResumeContext'; // Import Resume type
-import { Playlist } from './PlaylistContext'; // Import Playlist type
-import { Pod } from './PodContext'; // Import Pod type
+import api from '@/lib/api';
 
 // Define User interface
 export interface User {
   id: string;
   name: string;
   email: string;
-  password?: string; // Only for mock, never store real passwords client-side
-  hasCompletedFirstApplication: boolean; // New flag
+  hasCompletedFirstApplication: boolean;
 }
 
 // Define AuthContextType
@@ -33,156 +30,102 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
+  // Fetch current user if token exists
+  const fetchCurrentUser = async () => {
+    try {
+      const response = await api.get('/auth/me');
+      setCurrentUser(response.data);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Failed to fetch user:', error);
+      // If fetch fails (e.g., token expired), logout locally
+      logout();
+    }
+  };
+
   useEffect(() => {
-    // Load user from localStorage on initial render
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('careerCircleCurrentUser');
-      if (storedUser) {
-        const user: User = JSON.parse(storedUser);
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-      }
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      fetchCurrentUser();
     }
   }, []);
 
-  const saveUserToLocalStorage = (user: User | null) => {
-    if (typeof window !== 'undefined') {
-      if (user) {
-        localStorage.setItem('careerCircleCurrentUser', JSON.stringify(user));
-      } else {
-        localStorage.removeItem('careerCircleCurrentUser');
-      }
-    }
-  };
-
-  const updateAllUsersInLocalStorage = (updatedUser: User) => {
-    if (typeof window !== 'undefined') {
-      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      const updatedUsers = storedUsers.map((u: User) =>
-        u.id === updatedUser.id ? updatedUser : u
-      );
-      localStorage.setItem('careerCircleUsers', JSON.stringify(updatedUsers));
-    }
-  };
-
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock login logic
-    if (typeof window !== 'undefined') {
-      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      const user = storedUsers.find((u: User) => u.email === email && u.password === password);
-
-      if (user) {
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-        saveUserToLocalStorage(user);
-        toast.success(`Welcome back, ${user.name}!`);
-        return true;
-      } else {
-        toast.error('Invalid email or password.');
-        return false;
-      }
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      const { access_token } = response.data;
+      localStorage.setItem('access_token', access_token);
+      await fetchCurrentUser();
+      toast.success('Logged in successfully!');
+      return true;
+    } catch (error: any) {
+      console.error('Login error:', error);
+      toast.error(error.response?.data?.detail || 'Invalid email or password.');
+      return false;
     }
-    return false;
   };
 
   const register = async (name: string, email: string, password: string): Promise<boolean> => {
-    // Mock registration logic
-    if (typeof window !== 'undefined') {
-      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      if (storedUsers.some((u: User) => u.email === email)) {
-        toast.error('An account with this email already exists.');
-        return false;
-      }
-
-      const newUser: User = { id: `user-${Date.now()}`, name, email, password, hasCompletedFirstApplication: false }; // Initialize new user with false
-      localStorage.setItem('careerCircleUsers', JSON.stringify([...storedUsers, newUser]));
-      setCurrentUser(newUser);
-      setIsAuthenticated(true);
-      saveUserToLocalStorage(newUser);
-      toast.success(`Account created successfully! Welcome, ${name}!`);
+    try {
+      const response = await api.post('/auth/signup', { name, email, password });
+      const { access_token } = response.data;
+      localStorage.setItem('access_token', access_token);
+      await fetchCurrentUser();
+      toast.success(`Account created! Welcome, ${name}!`);
       return true;
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      toast.error(error.response?.data?.detail || 'Registration failed.');
+      return false;
     }
-    return false;
   };
 
   const logout = () => {
+    localStorage.removeItem('access_token');
     setIsAuthenticated(false);
     setCurrentUser(null);
-    saveUserToLocalStorage(null);
     toast.info('You have been logged out.');
   };
 
   const updateProfile = async (updatedFields: Partial<User>): Promise<boolean> => {
-    if (!currentUser) {
-      toast.error('You must be logged in to update your profile.');
-      return false;
-    }
+    if (!currentUser) return false;
 
-    const updatedUser = { ...currentUser, ...updatedFields };
-
-    if (typeof window !== 'undefined') {
-      updateAllUsersInLocalStorage(updatedUser);
-      setCurrentUser(updatedUser);
-      saveUserToLocalStorage(updatedUser);
+    // Backend currently only supports updating has_completed_first_application via specific payload
+    // We'll adapt this function to support that specific use case for now
+    
+    try {
+      // Check if the update is for hasCompletedFirstApplication
+      if (updatedFields.hasCompletedFirstApplication !== undefined) {
+         await api.patch('/auth/me', {
+            has_completed_first_application: updatedFields.hasCompletedFirstApplication
+         });
+      } else {
+         // Fallback or other fields - backend integration for generic update needed if required
+         console.warn("Update for these fields not fully implemented in backend integration yet:", updatedFields);
+      }
+      
+      // Refresh user data
+      await fetchCurrentUser();
       toast.success('Profile updated successfully!');
       return true;
+    } catch (error: any) {
+      console.error('Update profile error:', error);
+      toast.error('Failed to update profile.');
+      return false;
     }
-    return false;
   };
 
   const deleteAccount = async (): Promise<boolean> => {
-    if (!currentUser) {
-      toast.error('You must be logged in to delete your account.');
-      return false;
-    }
-
-    if (typeof window !== 'undefined') {
-      const userIdToDelete = currentUser.id;
-
-      // 1. Remove user from all users list
-      const storedUsers: User[] = JSON.parse(localStorage.getItem('careerCircleUsers') || '[]');
-      const filteredUsers = storedUsers.filter((u: User) => u.id !== userIdToDelete);
-      localStorage.setItem('careerCircleUsers', JSON.stringify(filteredUsers));
-
-      // 2. Remove user's resumes
-      const storedResumes: Resume[] = JSON.parse(localStorage.getItem('careerCircleResumes') || '[]');
-      const filteredResumes = storedResumes.filter((r: Resume) => r.userId !== userIdToDelete);
-      localStorage.setItem('careerCircleResumes', JSON.stringify(filteredResumes));
-
-      // 3. Remove user's playlists and their job entries
-      const storedPlaylists: Playlist[] = JSON.parse(localStorage.getItem('careerCirclePlaylists') || '[]');
-      const filteredPlaylists = storedPlaylists.filter((p: Playlist) => p.id !== 'default-playlist' && p.jobEntries.some(je => je.id.startsWith('job-')) ? p.jobEntries[0].id.split('-')[1] !== userIdToDelete.split('-')[1] : true); // Simplified mock logic for ownerId
-      // A more robust mock would require Playlist to have an ownerId
-      // For now, we'll filter based on the assumption that job entries created by a user have a timestamp-based ID that can be linked to the user's ID.
-      // This is a temporary workaround for the mock data structure.
-      // A better approach would be to add `ownerId: string` to the Playlist interface.
-      localStorage.setItem('careerCirclePlaylists', JSON.stringify(filteredPlaylists));
-
-
-      // 4. Remove user's pods (as owner) and remove user from other pods (as member)
-      const storedPods: Pod[] = JSON.parse(localStorage.getItem('careerCirclePods') || '[]');
-      const filteredPods = storedPods
-        .filter((p: Pod) => p.ownerId !== userIdToDelete) // Remove pods owned by this user
-        .map((p: Pod) => ({ // Remove user from other pods' member lists
-          ...p,
-          members: p.members.filter(member => member.id !== userIdToDelete),
-          sharedResumes: p.sharedResumes.filter(sr => sr.resumeOwnerId !== userIdToDelete), // Remove shared resumes by this user
-        }));
-      localStorage.setItem('careerCirclePods', JSON.stringify(filteredPods));
-
-      logout(); // Log out the user after deletion
-      toast.success('Your account and all associated data have been deleted.');
-      return true;
-    }
-    return false;
+    // Backend API doesn't have a delete account endpoint yet.
+    // For now, we will just log the user out and clear local state.
+    logout();
+    toast.info('Account deletion is not yet supported by the backend. Logged out locally.');
+    return true;
   };
 
   const markFirstApplicationComplete = async () => {
     if (currentUser) {
-      const updatedUser = { ...currentUser, hasCompletedFirstApplication: true };
-      updateAllUsersInLocalStorage(updatedUser);
-      setCurrentUser(updatedUser);
-      saveUserToLocalStorage(updatedUser);
+      await updateProfile({ hasCompletedFirstApplication: true });
       console.log("First application workflow marked as complete.");
     }
   };
