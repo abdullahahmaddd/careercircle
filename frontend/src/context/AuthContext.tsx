@@ -96,27 +96,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const updateProfile = async (updatedFields: Partial<User>): Promise<boolean> => {
     if (!currentUser) return false;
 
-    // Backend currently only supports updating has_completed_first_application via specific payload
-    // We'll adapt this function to support that specific use case for now
-    
     try {
-      // Check if the update is for hasCompletedFirstApplication
-      if (updatedFields.hasCompletedFirstApplication !== undefined) {
-         await api.patch('/auth/me', {
-            has_completed_first_application: updatedFields.hasCompletedFirstApplication
-         });
-      } else {
-         // Fallback or other fields - backend integration for generic update needed if required
-         console.warn("Update for these fields not fully implemented in backend integration yet:", updatedFields);
+      // Build payload for backend
+      const payload: Record<string, any> = {};
+
+      if (updatedFields.name !== undefined) {
+        payload.name = updatedFields.name;
       }
-      
+      if (updatedFields.hasCompletedFirstApplication !== undefined) {
+        payload.has_completed_first_application = updatedFields.hasCompletedFirstApplication;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        await api.patch('/auth/me', payload);
+      }
+
       // Refresh user data
       await fetchCurrentUser();
       toast.success('Profile updated successfully!');
       return true;
     } catch (error: any) {
       console.error('Update profile error:', error);
-      toast.error('Failed to update profile.');
+      toast.error(error.response?.data?.detail || 'Failed to update profile.');
       return false;
     }
   };

@@ -154,18 +154,21 @@ const CoverLetter = () => {
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-6 w-6" /> Generated Cover Letter
             </CardTitle>
-            <CardDescription>Review and download your tailored cover letter.</CardDescription>
+            <CardDescription>Edit and customize your tailored cover letter, then download.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Textarea
               value={generatedLetter}
+              onChange={(e) => setGeneratedLetter(e.target.value)}
               rows={20}
-              readOnly
               className="font-mono text-sm"
+              placeholder="Your cover letter will appear here..."
             />
-            <Button onClick={handleDownloadLetter} className="w-full">
-              <Download className="mr-2 h-4 w-4" /> Download Cover Letter (TXT)
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button onClick={handleDownloadLetter} className="flex-1">
+                <Download className="mr-2 h-4 w-4" /> Download Cover Letter (TXT)
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -11,3 +11,4 @@ python-dotenv
 email-validator
 pypdf
 python-docx
+reportlab

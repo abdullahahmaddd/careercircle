@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { Link, Outlet } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Sheet,
   SheetContent,
@@ -15,6 +15,7 @@ import { useAuth } from "@/context/AuthContext"; // Import useAuth
 import { usePlaylists } from "@/context/PlaylistContext"; // Import usePlaylists
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip components
 import { Badge } from "@/components/ui/badge"; // Import Badge component
+import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: Home, requiresAuth: false },
@@ -23,6 +24,9 @@ const navItems = [
   { name: "Pods", href: "/pods", icon: Users, requiresAuth: true },
   { name: "Settings", href: "/settings", icon: Settings, requiresAuth: true },
 ];
+
+// Routes that are allowed before completing first application workflow
+const ALLOWED_ROUTES_BEFORE_FIRST_APP = ["/", "/auth", "/first-application"];
 
 const SidebarNav = ({ className, isAuthenticated, logout, isSidebarOpen, hasUpcomingDeadlines }: { className?: string; isAuthenticated: boolean; logout: () => void; isSidebarOpen: boolean; hasUpcomingDeadlines: boolean }) => (
   <nav className={cn("flex flex-col space-y-1", className)}>
@@ -90,6 +94,22 @@ const Layout = () => {
   const { isAuthenticated, currentUser, logout } = useAuth();
   const { hasUpcomingDeadlines } = usePlaylists(); // Use the new flag
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // First Application Workflow Route Guard
+  // Only enforce for newly registered users who haven't completed first app
+  // Existing users (hasCompletedFirstApplication === undefined) are not blocked
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      currentUser &&
+      currentUser.hasCompletedFirstApplication === false &&
+      !ALLOWED_ROUTES_BEFORE_FIRST_APP.includes(location.pathname)
+    ) {
+      navigate("/first-application", { replace: true });
+    }
+  }, [isAuthenticated, currentUser, location.pathname, navigate]);
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
@@ -169,12 +189,15 @@ const Layout = () => {
               </SheetContent>
             </Sheet>
             <div className="text-xl font-bold text-sidebar-primary">CareerCircle</div>
-            {isAuthenticated && currentUser && (
-              <Link to="/settings" className="flex items-center gap-2 text-sidebar-foreground hover:text-sidebar-primary transition-colors">
-                <UserIcon className="h-5 w-5" />
-                <span className="text-sm font-medium">{currentUser.name.split(' ')[0]}</span>
-              </Link>
-            )}
+            <div className="flex items-center gap-2">
+              {isAuthenticated && <NotificationBell />}
+              {isAuthenticated && currentUser && (
+                <Link to="/settings" className="flex items-center gap-2 text-sidebar-foreground hover:text-sidebar-primary transition-colors">
+                  <UserIcon className="h-5 w-5" />
+                  <span className="text-sm font-medium">{currentUser.name.split(' ')[0]}</span>
+                </Link>
+              )}
+            </div>
           </header>
         )}
 

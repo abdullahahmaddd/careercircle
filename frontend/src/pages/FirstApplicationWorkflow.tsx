@@ -174,7 +174,7 @@ const FirstApplicationWorkflow = () => {
       };
 
       const addedEntry = await addJobEntry(defaultPlaylistId, newJobEntry);
-      
+
       if (addedEntry) {
         setCurrentWorkflowJobEntry(addedEntry);
         setJobEntryStatus(addedEntry.status);
@@ -251,23 +251,26 @@ const FirstApplicationWorkflow = () => {
     }
   };
 
-  const handleExportResume = (format: 'docx' | 'pdf') => {
-    if (!currentEditedVersionContent) {
+  const handleExportResume = async (format: 'docx' | 'pdf') => {
+    if (!versionResumeIdForSync) {
       toast.error("No version resume available to export.");
       return;
     }
 
-    const resumeTextContent = generateAtsCompliantTextResume(currentEditedVersionContent, editedRole);
-    const filename = `${currentEditedVersionContent.name.replace(/\s/g, '_')}_${editedRole.replace(/\s/g, '_')}_Resume.${format === 'docx' ? 'txt' : 'txt'}`;
-
-    const element = document.createElement("a");
-    const file = new Blob([resumeTextContent], { type: "text/plain" });
-    element.href = URL.createObjectURL(file);
-    element.download = filename;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-    toast.success(`Mock: Downloading ATS-compliant ${format.toUpperCase()} (as .txt) for ${currentEditedVersionContent.name}.`);
+    try {
+      if (format === 'docx') {
+        const { downloadResumeDOCX } = await import('@/utils/exportService');
+        await downloadResumeDOCX(versionResumeIdForSync);
+        toast.success("DOCX resume downloaded successfully!");
+      } else {
+        const { downloadResumePDF } = await import('@/utils/exportService');
+        await downloadResumePDF(versionResumeIdForSync);
+        toast.success("PDF resume downloaded successfully!");
+      }
+    } catch (error: any) {
+      console.error('Export error:', error);
+      toast.error(error.message || `Failed to download ${format.toUpperCase()} resume.`);
+    }
   };
 
   const handleInviteToPodClick = () => {
@@ -498,7 +501,7 @@ const FirstApplicationWorkflow = () => {
                   onChange={handleFileChange}
                 />
                 <p className="text-sm text-muted-foreground">
-                  (This is a mock upload. We'll simulate parsing your resume data.)
+                  Supported formats: PDF, DOC, DOCX. Your resume will be parsed to extract contact info, experience, education, and skills.
                 </p>
               </div>
               {currentWorkflowJobEntry && (
@@ -638,15 +641,12 @@ const FirstApplicationWorkflow = () => {
                 Download your ATS-compliant resume and get ready to apply.
                 You can also invite peers to your Pod for valuable feedback.
               </p>
-              <p className="text-sm text-orange-500 mb-4">
-                (Note: For this frontend-only app, DOCX/PDF export is simulated by downloading a structured plain text file.)
-              </p>
               <div className="flex flex-col md:flex-row justify-center gap-4 mb-8">
                 <Button onClick={() => handleExportResume('docx')}>
-                  <Download className="mr-2 h-4 w-4" /> Export as DOCX (Mock)
+                  <Download className="mr-2 h-4 w-4" /> Export as DOCX
                 </Button>
                 <Button onClick={() => handleExportResume('pdf')}>
-                  <Download className="mr-2 h-4 w-4" /> Export as PDF (Mock)
+                  <Download className="mr-2 h-4 w-4" /> Export as PDF
                 </Button>
               </div>
               <div className="space-y-4">

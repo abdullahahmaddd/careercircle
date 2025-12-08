@@ -8,8 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import api from "@/lib/api";
 
 const Auth = () => {
   const { isAuthenticated, login, register } = useAuth();
@@ -20,6 +30,11 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Forgot password state
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -44,6 +59,29 @@ const Auth = () => {
     setIsLoading(false);
     if (success) {
       navigate("/");
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingReset(true);
+    try {
+      const response = await api.post("/auth/forgot-password", { email: forgotPasswordEmail });
+      toast.success("If this email exists, a password reset link has been sent.");
+
+      // For development, show the token (remove in production)
+      if (response.data.dev_token) {
+        console.log("Dev reset token:", response.data.dev_token);
+        toast.info(`Dev token: ${response.data.dev_token.substring(0, 20)}... (check console)`);
+      }
+
+      setIsForgotPasswordOpen(false);
+      setForgotPasswordEmail("");
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      toast.error(error.response?.data?.detail || "Failed to send reset email.");
+    } finally {
+      setIsSendingReset(false);
     }
   };
 
@@ -89,9 +127,44 @@ const Auth = () => {
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Login
                 </Button>
-                <p className="text-center text-sm text-muted-foreground">
-                  Forgot your password? <a href="#" className="underline">Reset it</a> (mock)
-                </p>
+                <div className="text-center">
+                  <Dialog open={isForgotPasswordOpen} onOpenChange={setIsForgotPasswordOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="link" className="text-sm text-muted-foreground">
+                        Forgot your password?
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <form onSubmit={handleForgotPassword}>
+                        <DialogHeader>
+                          <DialogTitle>Reset Password</DialogTitle>
+                          <DialogDescription>
+                            Enter your email address and we'll send you a link to reset your password.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="forgot-email">Email</Label>
+                            <Input
+                              id="forgot-email"
+                              type="email"
+                              placeholder="m@example.com"
+                              value={forgotPasswordEmail}
+                              onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" disabled={isSendingReset}>
+                            {isSendingReset && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Send Reset Link
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </form>
             </TabsContent>
             <TabsContent value="register" className="mt-4">
@@ -126,7 +199,11 @@ const Auth = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    minLength={6}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Password must be at least 6 characters.
+                  </p>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

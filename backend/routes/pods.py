@@ -10,6 +10,7 @@ from backend.models import (
 )
 from backend.database import get_database
 from backend.routes.auth import get_current_user
+from backend.routes.notifications import create_notification, NotificationType
 
 router = APIRouter()
 
@@ -88,6 +89,14 @@ async def invite_member(pod_id: str, invite: PodInvite, current_user: UserInDB =
     await db.pods.update_one(
         {"_id": ObjectId(pod_id)},
         {"$push": {"members": new_member.model_dump()}}
+    )
+    
+    # Create notification for invited user
+    await create_notification(
+        user_id=str(invited_user["_id"]),
+        notification_type=NotificationType.POD_INVITE,
+        message=f"{current_user.name} invited you to join the pod '{pod['name']}'",
+        metadata={"pod_id": pod_id, "pod_name": pod["name"], "inviter_name": current_user.name}
     )
     
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
@@ -171,6 +180,27 @@ async def add_comment(
     
     if result.modified_count == 0:
          raise HTTPException(status_code=404, detail="Shared resume not found in this pod")
+
+    # Find the shared resume to get owner info
+    shared_resume_data = None
+    for sr in pod.get("shared_resumes", []):
+        if sr["id"] == shared_resume_id:
+            shared_resume_data = sr
+            break
+    
+    # Notify resume owner if commenter is different from owner
+    if shared_resume_data and shared_resume_data["resume_owner_id"] != str(current_user.id):
+        await create_notification(
+            user_id=shared_resume_data["resume_owner_id"],
+            notification_type=NotificationType.RESUME_COMMENT,
+            message=f"{current_user.name} commented on your resume in '{pod['name']}'",
+            metadata={
+                "pod_id": pod_id,
+                "pod_name": pod["name"],
+                "shared_resume_id": shared_resume_id,
+                "commenter_name": current_user.name
+            }
+        )
 
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
     return PodInDB(**updated_pod)

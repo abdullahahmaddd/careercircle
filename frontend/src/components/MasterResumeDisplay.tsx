@@ -5,11 +5,14 @@ import { ParsedResume, Experience, Education, Skill } from "@/utils/resumeParser
 import { ParsedJobDescription } from "@/utils/jdParser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface MasterResumeDisplayProps {
   resume: ParsedResume;
   jobDescription?: ParsedJobDescription | null;
   fitScore: number;
+  matchedKeywords?: string[];
+  missingKeywords?: string[];
 }
 
 // Helper to highlight keywords in text
@@ -19,7 +22,7 @@ const highlightKeywords = (text: string, keywords: string[]) => {
   const regex = new RegExp(`(${keywords.join('|')})`, 'gi');
   return text.split(regex).map((part, index) =>
     regex.test(part) ? (
-      <span key={index} className="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">
+      <span key={index} className="bg-green-200 dark:bg-green-700 rounded px-0.5">
         {part}
       </span>
     ) : (
@@ -28,22 +31,91 @@ const highlightKeywords = (text: string, keywords: string[]) => {
   );
 };
 
-const MasterResumeDisplay: React.FC<MasterResumeDisplayProps> = ({ resume, jobDescription, fitScore }) => {
+const MasterResumeDisplay: React.FC<MasterResumeDisplayProps> = ({
+  resume,
+  jobDescription,
+  fitScore,
+  matchedKeywords,
+  missingKeywords
+}) => {
   const jdKeywords = jobDescription?.keywords || [];
+
+  // Calculate matched/missing if not provided
+  const computedMatchedKeywords = matchedKeywords || jdKeywords.filter(keyword => {
+    const resumeText = [
+      resume.summary || "",
+      ...resume.experience.flatMap(exp => exp.description),
+      ...resume.skills.map(skill => skill.name)
+    ].join(" ").toLowerCase();
+    return resumeText.includes(keyword.toLowerCase());
+  });
+
+  const computedMissingKeywords = missingKeywords || jdKeywords.filter(
+    keyword => !computedMatchedKeywords.includes(keyword)
+  );
 
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle className="flex justify-between items-center">
+        <CardTitle className="flex justify-between items-center flex-wrap gap-2">
           <span>Master Resume: {resume.name}</span>
           {jobDescription && (
-            <Badge variant="secondary" className="text-lg px-3 py-1">
+            <Badge
+              variant={fitScore >= 70 ? "default" : fitScore >= 40 ? "secondary" : "destructive"}
+              className="text-lg px-3 py-1"
+            >
               Fit Score: {fitScore}%
             </Badge>
           )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Keyword Match Summary */}
+        {jobDescription && jdKeywords.length > 0 && (
+          <div className="border rounded-lg p-4 bg-muted/50">
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <span>Keyword Analysis</span>
+            </h3>
+
+            {/* Matched Keywords */}
+            {computedMatchedKeywords.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center gap-1 mb-2 text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="text-sm font-medium">Matched Keywords ({computedMatchedKeywords.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {computedMatchedKeywords.map((keyword, index) => (
+                    <Badge key={index} variant="outline" className="bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                      {keyword}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Missing Keywords */}
+            {computedMissingKeywords.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1 mb-2 text-orange-600 dark:text-orange-400">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">Missing Keywords ({computedMissingKeywords.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {computedMissingKeywords.map((keyword, index) => (
+                    <Badge key={index} variant="outline" className="bg-orange-50 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                      {keyword}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Consider adding these keywords to improve your fit score.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Contact Information */}
         <div className="border-b pb-4">
           <h3 className="text-xl font-semibold mb-2">Contact Information</h3>

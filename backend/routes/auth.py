@@ -6,7 +6,10 @@ from backend.utils import get_password_hash, verify_password, create_access_toke
 from backend.database import get_database
 from backend.config import get_settings
 from bson import ObjectId
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from datetime import datetime, timedelta
+from typing import Optional
+import secrets
 
 router = APIRouter()
 settings = get_settings()
@@ -75,16 +78,148 @@ async def read_users_me(current_user: UserInDB = Depends(get_current_user)):
     return current_user
 
 class UserUpdate(BaseModel):
-    has_completed_first_application: bool
+    name: Optional[str] = None
+    has_completed_first_application: Optional[bool] = None
 
 @router.patch("/me", response_model=UserResponse)
 async def update_user_me(update_data: UserUpdate, current_user: UserInDB = Depends(get_current_user)):
     db = get_database()
+    
+    # Build update dict with only provided fields
+    update_fields = {}
+    if update_data.name is not None:
+        update_fields["name"] = update_data.name
+    if update_data.has_completed_first_application is not None:
+        update_fields["has_completed_first_application"] = update_data.has_completed_first_application
+    
+    if not update_fields:
+        return current_user  # Nothing to update
+    
     await db.users.update_one(
         {"_id": ObjectId(current_user.id)},
-        {"$set": {"has_completed_first_application": update_data.has_completed_first_application}}
+        {"$set": update_fields}
     )
     
     # Fetch updated user to return
     updated_user = await db.users.find_one({"_id": ObjectId(current_user.id)})
     return UserInDB(**updated_user)
+
+
+# ==================== Password Management ====================
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: UserInDB = Depends(get_current_user)
+):
+    """Change password for authenticated user."""
+    # Verify current password
+    if not verify_password(request.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Validate new password
+    if len(request.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters"
+        )
+    
+    # Update password
+    db = get_database()
+    new_hashed_password = get_password_hash(request.new_password)
+    await db.users.update_one(
+        {"_id": ObjectId(current_user.id)},
+        {"$set": {"hashed_password": new_hashed_password}}
+    )
+    
+    return {"message": "Password changed successfully"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest):
+    """Request password reset. Generates a reset token."""
+    db = get_database()
+    user = await db.users.find_one({"email": request.email})
+    
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If this email exists, a reset link has been sent."}
+    
+    # Generate reset token
+    reset_token = secrets.token_urlsafe(32)
+    reset_expiry = datetime.utcnow() + timedelta(hours=1)
+    
+    # Store reset token in database
+    await db.users.update_one(
+        {"email": request.email},
+        {"$set": {
+            "reset_token": reset_token,
+            "reset_token_expiry": reset_expiry
+        }}
+    )
+    
+    # In a real app, you would send an email here with a link like:
+    # https://yourapp.com/reset-password?token={reset_token}
+    # For now, we return the token in the response (only for development)
+    
+    return {
+        "message": "If this email exists, a reset link has been sent.",
+        "dev_token": reset_token  # Remove this in production!
+    }
+
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    """Reset password using a reset token."""
+    db = get_database()
+    
+    # Find user with this reset token
+    user = await db.users.find_one({"reset_token": request.token})
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+    
+    # Check if token is expired
+    token_expiry = user.get("reset_token_expiry")
+    if not token_expiry or datetime.utcnow() > token_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired. Please request a new one."
+        )
+    
+    # Validate new password
+    if len(request.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters"
+        )
+    
+    # Update password and clear reset token
+    new_hashed_password = get_password_hash(request.new_password)
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"hashed_password": new_hashed_password},
+            "$unset": {"reset_token": "", "reset_token_expiry": ""}
+        }
+    )
+    
+    return {"message": "Password has been reset successfully. You can now log in."}

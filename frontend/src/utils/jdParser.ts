@@ -1,4 +1,5 @@
 // src/utils/jdParser.ts
+import api from '@/lib/api';
 
 export interface ParsedJobDescription {
   role: string;
@@ -6,12 +7,56 @@ export interface ParsedJobDescription {
   keywords: string[];
 }
 
+export interface FitScoreResult {
+  score: number;
+  matchedKeywords: string[];
+  missingKeywords: string[];
+}
+
 /**
- * Mock function to parse a job description.
- * In a real application, this would involve NLP or a backend service.
- * For frontend-only, we simulate extraction based on common patterns.
+ * Parse job description using the backend API.
+ * Falls back to local parsing if API fails.
  */
-export const parseJobDescription = (jdText: string): ParsedJobDescription => {
+export const parseJobDescriptionAPI = async (jdText: string): Promise<ParsedJobDescription> => {
+  try {
+    const response = await api.post<ParsedJobDescription>('/jd/parse', { text: jdText });
+    return response.data;
+  } catch (error) {
+    console.warn('Backend JD parsing failed, using local fallback:', error);
+    return parseJobDescriptionLocal(jdText);
+  }
+};
+
+/**
+ * Compute fit score using the backend API.
+ * Falls back to local calculation if API fails.
+ */
+export const computeFitScoreAPI = async (
+  resumeContent: { summary?: string; experience: { description: string[] }[]; skills: { name: string }[] },
+  keywords: string[]
+): Promise<FitScoreResult> => {
+  try {
+    const response = await api.post<{ score: number; matched_keywords: string[]; missing_keywords: string[] }>(
+      '/jd/compute-fit-score',
+      { resume_content: resumeContent, keywords }
+    );
+    return {
+      score: response.data.score,
+      matchedKeywords: response.data.matched_keywords,
+      missingKeywords: response.data.missing_keywords,
+    };
+  } catch (error) {
+    console.warn('Backend fit score failed, using local fallback:', error);
+    const score = calculateFitScoreLocal(resumeContent, keywords);
+    const { matched, missing } = getMatchedAndMissingKeywords(resumeContent, keywords);
+    return { score, matchedKeywords: matched, missingKeywords: missing };
+  }
+};
+
+/**
+ * Local/fallback function to parse a job description.
+ */
+export const parseJobDescriptionLocal = (jdText: string): ParsedJobDescription => {
   const lowerCaseJd = jdText.toLowerCase();
   let role = "Unknown Role";
   let domain = "General";
@@ -60,29 +105,45 @@ export const parseJobDescription = (jdText: string): ParsedJobDescription => {
 };
 
 /**
- * Calculates a mock "Fit Score" by comparing JD keywords against resume content.
- * This is a simplified, frontend-only implementation.
+ * Helper to get matched and missing keywords.
  */
-export const calculateFitScore = (
+const getMatchedAndMissingKeywords = (
   resume: { summary?: string; experience: { description: string[] }[]; skills: { name: string }[] },
   jdKeywords: string[]
-): number => {
-  if (!jdKeywords || jdKeywords.length === 0) return 100; // If no JD keywords, perfect fit
-
-  let matchedKeywordsCount = 0;
-  const totalKeywords = jdKeywords.length;
-
+): { matched: string[]; missing: string[] } => {
   const resumeText = [
     resume.summary || "",
     ...resume.experience.flatMap(exp => exp.description),
     ...resume.skills.map(skill => skill.name)
   ].join(" ").toLowerCase();
 
+  const matched: string[] = [];
+  const missing: string[] = [];
+
   jdKeywords.forEach(keyword => {
     if (resumeText.includes(keyword.toLowerCase())) {
-      matchedKeywordsCount++;
+      matched.push(keyword);
+    } else {
+      missing.push(keyword);
     }
   });
 
-  return Math.round((matchedKeywordsCount / totalKeywords) * 100);
+  return { matched, missing };
 };
+
+/**
+ * Local/fallback fit score calculation.
+ */
+const calculateFitScoreLocal = (
+  resume: { summary?: string; experience: { description: string[] }[]; skills: { name: string }[] },
+  jdKeywords: string[]
+): number => {
+  if (!jdKeywords || jdKeywords.length === 0) return 100; // If no JD keywords, perfect fit
+
+  const { matched } = getMatchedAndMissingKeywords(resume, jdKeywords);
+  return Math.round((matched.length / jdKeywords.length) * 100);
+};
+
+// Backwards compatibility exports
+export const parseJobDescription = parseJobDescriptionLocal;
+export const calculateFitScore = calculateFitScoreLocal;

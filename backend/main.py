@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.config import get_settings
 from backend.database import connect_to_mongo, close_mongo_connection
-from backend.routes import auth, resumes, playlists, pods
+from backend.routes import auth, resumes, playlists, pods, jd, export, notifications
 
 settings = get_settings()
 
@@ -27,6 +27,9 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(resumes.router, prefix="/api/v1/resumes", tags=["resumes"])
 app.include_router(playlists.router, prefix="/api/v1/playlists", tags=["playlists"])
 app.include_router(pods.router, prefix="/api/v1/pods", tags=["pods"])
+app.include_router(jd.router, prefix="/api/v1/jd", tags=["jd"])
+app.include_router(export.router, prefix="/api/v1/export", tags=["export"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 
 @app.get("/healthz")
 async def health_check():
