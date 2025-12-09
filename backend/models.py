@@ -72,6 +72,7 @@ class ResumeInDB(ResumeBase):
     user_id: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_modified_at: datetime = Field(default_factory=datetime.utcnow)
+    is_unsynced: bool = False
 
     model_config = ConfigDict(
         populate_by_name=True,

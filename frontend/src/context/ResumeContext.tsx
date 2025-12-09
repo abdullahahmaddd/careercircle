@@ -17,6 +17,7 @@ export interface Resume {
   lastModifiedAt: string;
   sourceMasterId?: string; // For version resumes, links to master
   jobDescriptionId?: string; // For version resumes, links to a specific JD if tailored
+  isUnsynced?: boolean; // Indicates if version has unsynced changes
 }
 
 // Helper to map backend response to frontend interface
@@ -35,6 +36,7 @@ const mapResume = (apiResume: any): Resume => {
     lastModifiedAt: apiResume.last_modified_at,
     sourceMasterId: apiResume.source_master_id,
     jobDescriptionId: apiResume.job_description_id,
+    isUnsynced: apiResume.is_unsynced || false,
   };
 };
 
@@ -212,13 +214,28 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
       return false;
     }
 
-    // Call updateMasterResumeContent with the version's content
-    const result = await updateMasterResumeContent(masterResume.userId, version.content);
-    if (result) {
+    try {
+      // New Endpoint: POST /resumes/{master_id}/sync_from/{version_id}
+      const response = await api.post(`/resumes/${masterResume.id}/sync_from/${versionResumeId}`);
+      
+      const updatedMaster = mapResume(response.data);
+      setMasterResume(updatedMaster);
+      
+      // Update local version state to clear dirty flag
+      setVersionResumes(prev => prev.map(r => {
+        if (r.id === versionResumeId) {
+          return { ...r, isUnsynced: false };
+        }
+        return r;
+      }));
+
       toast.success(`Changes from "${version.name}" synced to Master Resume!`);
       return true;
+    } catch (error) {
+      console.error('Failed to sync version to master:', error);
+      toast.error("Failed to sync changes to Master Resume.");
+      return false;
     }
-    return false;
   };
 
   const getResumeById = (resumeId: string): Resume | undefined => {

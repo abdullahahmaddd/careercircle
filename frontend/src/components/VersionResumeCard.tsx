@@ -43,8 +43,9 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
   const [editedVersionContent, setEditedVersionContent] = useState<ParsedResume>(versionResume.content);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
 
-  // Check for changes by comparing stringified JSON content
-  const hasChangesComparedToMaster = masterResumeContent && JSON.stringify(versionResume.content) !== JSON.stringify(masterResumeContent);
+  // Check for changes using the isUnsynced flag from the backend
+  // Fallback to client-side check if backend flag is undefined (though context now ensures it)
+  const isUnsynced = versionResume.isUnsynced ?? (masterResumeContent && JSON.stringify(versionResume.content) !== JSON.stringify(masterResumeContent));
 
   const handleDelete = async () => {
     const success = await deleteResume(versionResume.id);
@@ -77,7 +78,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-secondary-foreground" /> {versionResume.name}
-          {hasChangesComparedToMaster && (
+          {isUnsynced && (
             <Badge variant="outline" className="ml-2 text-orange-500 border-orange-500">
               Unsynced Changes
             </Badge>
@@ -129,7 +130,7 @@ const VersionResumeCard: React.FC<VersionResumeCardProps> = ({ versionResume, ma
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm" className="flex-1 md:flex-none" disabled={!hasChangesComparedToMaster}>
+              <Button variant="outline" size="sm" className="flex-1 md:flex-none" disabled={!isUnsynced}>
                 <GitMerge className="mr-2 h-4 w-4" /> Sync to Master
               </Button>
             </AlertDialogTrigger>

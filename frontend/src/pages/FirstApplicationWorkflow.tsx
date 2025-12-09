@@ -155,6 +155,11 @@ const FirstApplicationWorkflow = () => {
 
   const handleConfirmJd = async () => {
     if (parsedJd) {
+      if (!applicationDeadline) {
+        toast.error("Please set an application deadline before continuing.");
+        return;
+      }
+
       const finalJd = {
         ...parsedJd,
         role: editedRole,
@@ -164,7 +169,7 @@ const FirstApplicationWorkflow = () => {
 
       const newJobEntry: Omit<JobEntry, 'id' | 'createdAt'> = {
         roleTitle: finalJd.role,
-        applicationDeadline: applicationDeadline || "N/A",
+        applicationDeadline: applicationDeadline,
         status: 'Not started',
         jdText: jobDescription,
         parsedJd: finalJd,
@@ -400,13 +405,15 @@ const FirstApplicationWorkflow = () => {
                 className="min-h-[200px]"
               />
               <div className="space-y-2">
-                <Label htmlFor="application-deadline">Application Deadline (Optional)</Label>
+                <Label htmlFor="application-deadline">Application Deadline <span className="text-destructive">*</span></Label>
                 <Input
                   id="application-deadline"
                   type="date"
                   value={applicationDeadline}
                   onChange={(e) => setApplicationDeadline(e.target.value)}
+                  required
                 />
+                <p className="text-xs text-muted-foreground">Required - Set the deadline to track your application.</p>
               </div>
               <Button onClick={handleParseJd} disabled={!jobDescription.trim()}>
                 Parse JD & Next Step <ArrowRight className="ml-2 h-4 w-4" />

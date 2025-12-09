@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import List, Dict, Any
 from datetime import datetime
 from bson import ObjectId
-from backend.models import UserInDB, ResumeCreate, ResumeUpdate, ResumeResponse, ResumeInDB
+from backend.models import UserInDB, ResumeCreate, ResumeUpdate, ResumeResponse, ResumeInDB, ResumeType
 from backend.database import get_database
 from backend.routes.auth import get_current_user
 from backend.resume_parser import parse_resume
@@ -71,6 +71,10 @@ async def update_resume(resume_id: str, resume_update: ResumeUpdate, current_use
         return ResumeInDB(**existing_resume)
         
     update_data["last_modified_at"] = datetime.utcnow()
+
+    # If updating a version resume, mark as unsynced
+    if existing_resume.get("type") == ResumeType.VERSION:
+        update_data["is_unsynced"] = True
     
     await db.resumes.update_one(
         {"_id": ObjectId(resume_id)},
@@ -92,3 +96,54 @@ async def delete_resume(resume_id: str, current_user: UserInDB = Depends(get_cur
         raise HTTPException(status_code=404, detail="Resume not found")
     
     return None
+
+@router.post("/{master_id}/sync_from/{version_id}", response_model=ResumeResponse)
+async def sync_version_to_master(master_id: str, version_id: str, current_user: UserInDB = Depends(get_current_user)):
+    if not ObjectId.is_valid(master_id) or not ObjectId.is_valid(version_id):
+        raise HTTPException(status_code=400, detail="Invalid resume ID")
+
+    db = get_database()
+
+    # 1. Fetch Master Resume
+    master_resume = await db.resumes.find_one({
+        "_id": ObjectId(master_id),
+        "user_id": str(current_user.id),
+        "type": ResumeType.MASTER
+    })
+    if not master_resume:
+        raise HTTPException(status_code=404, detail="Master Resume not found")
+
+    # 2. Fetch Version Resume
+    version_resume = await db.resumes.find_one({
+        "_id": ObjectId(version_id),
+        "user_id": str(current_user.id),
+        "type": ResumeType.VERSION
+    })
+    if not version_resume:
+        raise HTTPException(status_code=404, detail="Version Resume not found")
+
+    # 3. Optional: Verify Hierarchy (warning or strict check)
+    if version_resume.get("source_master_id") and version_resume.get("source_master_id") != master_id:
+        raise HTTPException(status_code=400, detail="This version does not belong to the specified master resume")
+
+    # 4. Perform Sync
+    # Update Master Content
+    await db.resumes.update_one(
+        {"_id": ObjectId(master_id)},
+        {
+            "$set": {
+                "content": version_resume["content"],
+                "last_modified_at": datetime.utcnow()
+            }
+        }
+    )
+
+    # Mark Version as Synced
+    await db.resumes.update_one(
+        {"_id": ObjectId(version_id)},
+        {"$set": {"is_unsynced": False}}
+    )
+
+    # Return Updated Master
+    updated_master = await db.resumes.find_one({"_id": ObjectId(master_id)})
+    return ResumeInDB(**updated_master)
