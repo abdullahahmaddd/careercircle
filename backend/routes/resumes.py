@@ -5,7 +5,7 @@ from bson import ObjectId
 from backend.models import UserInDB, ResumeCreate, ResumeUpdate, ResumeResponse, ResumeInDB, ResumeType
 from backend.database import get_database
 from backend.routes.auth import get_current_user
-from backend.resume_parser import parse_resume
+from backend.utils.parser import parse_resume
 
 router = APIRouter()
 

@@ -11,6 +11,7 @@ from backend.models import (
 from backend.database import get_database
 from backend.routes.auth import get_current_user
 from backend.routes.notifications import create_notification, NotificationType
+from backend.utils.email_service import send_pod_invite_email, send_resume_comment_email
 
 router = APIRouter()
 
@@ -97,6 +98,14 @@ async def invite_member(pod_id: str, invite: PodInvite, current_user: UserInDB =
         notification_type=NotificationType.POD_INVITE,
         message=f"{current_user.name} invited you to join the pod '{pod['name']}'",
         metadata={"pod_id": pod_id, "pod_name": pod["name"], "inviter_name": current_user.name}
+    )
+
+    # Send email notification
+    await send_pod_invite_email(
+        to_email=invited_user["email"],
+        to_name=invited_user["name"],
+        pod_name=pod["name"],
+        inviter_name=current_user.name
     )
     
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
@@ -201,6 +210,18 @@ async def add_comment(
                 "commenter_name": current_user.name
             }
         )
+
+        # Fetch resume owner's email for notification
+        resume_owner = await db.users.find_one({"_id": ObjectId(shared_resume_data["resume_owner_id"])})
+        if resume_owner:
+            await send_resume_comment_email(
+                to_email=resume_owner["email"],
+                to_name=resume_owner["name"],
+                commenter_name=current_user.name,
+                resume_name=shared_resume_data.get("version_resume", {}).get("name", "Resume"),
+                comment_preview=comment.text,
+                pod_name=pod["name"]
+            )
 
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
     return PodInDB(**updated_pod)

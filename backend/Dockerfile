@@ -15,9 +15,9 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source
-COPY backend/ /app
+COPY backend/ /app/backend
 
 EXPOSE 8002
 
-# Run uvicorn — expects `main.py` with FastAPI app named `app` in `/app`
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Run uvicorn — expects `main.py` with FastAPI app named `app` in `/app/backend`
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8002"]

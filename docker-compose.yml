@@ -11,7 +11,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend:/app:delegated
+      - ./backend:/app/backend:delegated
 
   frontend:
     build:

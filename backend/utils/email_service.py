@@ -76,7 +76,8 @@ Hi {to_name},
 
 Peer pods allow you to collaborate with others, share resumes, and get valuable feedback on your job applications.
 
-Log in to CareerCircle to view and accept this invitation.
+Log in to CareerCircle to view and accept this invitation:
+{settings.FRONTEND_URL}/pods
 
 Best,
 The CareerCircle Team
@@ -104,7 +105,7 @@ The CareerCircle Team
             <p>Hi <strong>{to_name}</strong>,</p>
             <p><strong>{inviter_name}</strong> has invited you to join the peer pod "<strong>{pod_name}</strong>" on CareerCircle!</p>
             <p>Peer pods allow you to collaborate with others, share resumes, and get valuable feedback on your job applications.</p>
-            <a href="#" class="button">View Invitation</a>
+            <a href="{settings.FRONTEND_URL}/pods" class="button">View Invitation</a>
             <div class="footer">
                 <p>Best,<br>The CareerCircle Team</p>
             </div>
@@ -139,7 +140,8 @@ Hi {to_name},
 
 "{comment_preview}"
 
-Log in to CareerCircle to view the full comment and respond.
+Log in to CareerCircle to view the full comment and respond:
+{settings.FRONTEND_URL}/pods
 
 Best,
 The CareerCircle Team
@@ -170,7 +172,7 @@ The CareerCircle Team
             <div class="comment-box">
                 <p>"{comment_preview}"</p>
             </div>
-            <a href="#" class="button">View Comment</a>
+            <a href="{settings.FRONTEND_URL}/pods" class="button">View Comment</a>
             <div class="footer">
                 <p>Best,<br>The CareerCircle Team</p>
             </div>

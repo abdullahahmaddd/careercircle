@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from backend.models import UserCreate, UserLogin, UserResponse, UserInDB, Token, TokenData
 from backend.utils import get_password_hash, verify_password, create_access_token
+from backend.utils.email_service import send_email
 from backend.database import get_database
 from backend.config import get_settings
 from bson import ObjectId
@@ -173,13 +174,50 @@ async def forgot_password(request: ForgotPasswordRequest):
         }}
     )
     
-    # In a real app, you would send an email here with a link like:
-    # https://yourapp.com/reset-password?token={reset_token}
-    # For now, we return the token in the response (only for development)
+    # Send password reset email
+    frontend_url = settings.FRONTEND_URL or "http://localhost:5173"
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+    subject = "Reset your CareerCircle password"
+    body_text = f"""
+Hi {user['name']},
+
+You requested a password reset for your CareerCircle account.
+Click the link below to reset your password:
+
+{reset_link}
+
+If you didn't request this, please ignore this email.
+
+Best,
+The CareerCircle Team
+"""
+    body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .button {{ display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 15px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Password Reset Request</h2>
+        <p>Hi <strong>{user['name']}</strong>,</p>
+        <p>You requested a password reset for your CareerCircle account.</p>
+        <a href="{reset_link}" class="button">Reset Password</a>
+        <p>Or copy and paste this link: {reset_link}</p>
+        <p>If you didn't request this, please ignore this email.</p>
+    </div>
+</body>
+</html>
+"""
+    
+    await send_email(request.email, subject, body_text, body_html)
     
     return {
-        "message": "If this email exists, a reset link has been sent.",
-        "dev_token": reset_token  # Remove this in production!
+        "message": "If this email exists, a reset link has been sent."
     }
 
 

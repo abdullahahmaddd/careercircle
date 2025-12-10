@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "secure-random-string"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5137", "http://localhost:5138"]
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5137", "http://localhost:5138", "https://careercircle.onrender.com"]
+    FRONTEND_URL: str = "https://careercircle.onrender.com"
     
     # Email/SMTP settings
     SMTP_HOST: str = "smtp.gmail.com"
