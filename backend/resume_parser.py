@@ -1,379 +1,614 @@
 import io
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime
+from functools import lru_cache
 from pypdf import PdfReader
 from docx import Document
 
+# ============================================================================
+# PRE-COMPILED REGEX PATTERNS FOR EFFICIENCY
+# ============================================================================
+
+# Bullet point patterns
+BULLET_PATTERNS = [
+    re.compile(r'^[\s]*[•\-\*\u2022\u2023\u25E6\u2043\u2219○◦▪►→·▸▹‣⁃∙◘◙]\s+(.+)$'),
+    re.compile(r'^[\s]*[\-\*\+]\s+(.+)$'),
+    re.compile(r'^[\s]*\d+[\.\)]\s+(.+)$'),
+    re.compile(r'^[\s]*[a-z][\.\)]\s+(.+)$'),
+    re.compile(r'^[\s]*[ivxIVX]+[\.\)]\s+(.+)$'),
+]
+
+# Contact information patterns
+EMAIL_PATTERN = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
+PHONE_PATTERNS = [
+    re.compile(r'\+?\d{1,4}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}'),
+    re.compile(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'),
+    re.compile(r'\d{10,15}'),
+]
+LINKEDIN_PATTERNS = [
+    re.compile(r'(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9-]+)', re.IGNORECASE),
+    re.compile(r'linkedin\.com/([a-zA-Z0-9-]+)', re.IGNORECASE),
+    re.compile(r'linkedin:?\s+([a-zA-Z0-9-]+)', re.IGNORECASE),
+    re.compile(r'(?:^|\s)in/([a-zA-Z0-9-]+)(?:\s|$)'),
+]
+
+# Date patterns
+DATE_PATTERN = re.compile(r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]*\d{4}|(?:19|20)\d{2}(?:\s*(?:-|–|—|to|TO)\s*(?:Present|Current|Now|(?:19|20)\d{2}))?|\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}', re.IGNORECASE)
+MONTH_YEAR_PATTERN = re.compile(r'([a-z]+)[\s,]+(\d{4})', re.IGNORECASE)
+DAY_MONTH_YEAR_PATTERN = re.compile(r'(\d{1,2})[\s]+([a-z]+)[\s,]+(\d{4})', re.IGNORECASE)
+DATE_SLASH_PATTERN = re.compile(r'(\d{1,2})[\.\/\-](\d{1,2})[\.\/\-](\d{2,4})')
+YEAR_PATTERN = re.compile(r'\b(19|20)\d{2}\b')
+QUARTER_PATTERN = re.compile(r'q[1-4]\s+(\d{4})', re.IGNORECASE)
+
+# Multi-column detection
+COLUMN_GAP_PATTERN = re.compile(r'\s{10,}')
+
+# Skills patterns
+BULLET_PREFIX_PATTERN = re.compile(r'^[\s]*[•\-\*\u2022○◦▪►→·]\s*')
+SKILL_DELIMITER_PATTERN = re.compile(r'[,|•·;/]\s*')
+
+# Common job titles to exclude from name detection
+COMMON_JOB_TITLES = {
+    'software engineer', 'senior software engineer', 'developer', 'programmer',
+    'data scientist', 'analyst', 'manager', 'director', 'consultant',
+    'engineer', 'architect', 'designer', 'lead', 'principal', 'staff',
+    'intern', 'associate', 'specialist', 'coordinator', 'administrator'
+}
+
+# ============================================================================
+# ENHANCED BULLET POINT DETECTION
+# ============================================================================
+
+def detect_bullet_points(text: str) -> List[str]:
+    """
+    Enhanced bullet point detection with pre-compiled regex patterns.
+    Handles various bullet styles, numbering, and indentation.
+    """
+    lines = text.split('\n')
+    bullets = []
+    
+    current_bullet = None
+    
+    for line in lines:
+        if not line.strip():
+            continue
+            
+        matched = False
+        for pattern in BULLET_PATTERNS:
+            match = pattern.match(line)
+            if match:
+                # Save previous bullet if exists
+                if current_bullet:
+                    bullets.append(current_bullet.strip())
+                
+                # Start new bullet
+                current_bullet = match.group(1) if match.lastindex else match.group(0)
+                matched = True
+                break
+        
+        # If no bullet pattern matched but line is indented or starts lowercase, it's a continuation
+        if not matched and current_bullet:
+            stripped = line.strip()
+            # Check if it's a continuation (indented OR starts with lowercase OR very short)
+            if (re.match(r'^[\s]{2,}', line) or 
+                (stripped and stripped[0].islower()) or
+                (stripped and len(stripped) < 80 and not re.search(r'\d{4}', stripped))):
+                current_bullet += ' ' + stripped
+            else:
+                # This is a new non-bullet line, save current and skip
+                bullets.append(current_bullet.strip())
+                current_bullet = None
+    
+    # Add last bullet
+    if current_bullet:
+        bullets.append(current_bullet.strip())
+    
+    return bullets
+
+
+# ============================================================================
+# COMPREHENSIVE DATE PARSING
+# ============================================================================
+
+class DateParser:
+    """Enhanced date parser supporting multiple formats and languages."""
+    
+    MONTH_NAMES = {
+        'jan': 1, 'january': 1, 'enero': 1,
+        'feb': 2, 'february': 2, 'febrero': 2,
+        'mar': 3, 'march': 3, 'marzo': 3,
+        'apr': 4, 'april': 4, 'abril': 4,
+        'may': 5, 'mayo': 5,
+        'jun': 6, 'june': 6, 'junio': 6,
+        'jul': 7, 'july': 7, 'julio': 7,
+        'aug': 8, 'august': 8, 'agosto': 8,
+        'sep': 9, 'sept': 9, 'september': 9, 'septiembre': 9,
+        'oct': 10, 'october': 10, 'octubre': 10,
+        'nov': 11, 'november': 11, 'noviembre': 11,
+        'dec': 12, 'december': 12, 'diciembre': 12
+    }
+    
+    MONTH_ABBREV = {v: k.capitalize()[:3] for k, v in {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 
+                    'may': 5, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}.items()}
+    
+    @classmethod
+    @lru_cache(maxsize=128)
+    def parse_date(cls, date_str: str) -> Optional[str]:
+        """
+        Parse date from various formats and return normalized format (Mon YYYY).
+        Supported formats:
+        - August 2024, Aug 2024, august 2024
+        - 24.01.24, 24/1/25, 01-24-2024
+        - 25 August 2025, 25 aug 2025
+        - 2024, Q3 2024
+        - Present, Current, Now
+        """
+        if not date_str:
+            return None
+            
+        date_str = date_str.strip()
+        date_lower = date_str.lower()
+        
+        # Handle special cases
+        if any(word in date_lower for word in ['present', 'current', 'now', 'ongoing']):
+            return 'Present'
+        
+        # Pattern 1: Month Name + Year (August 2024, Aug 2024)
+        match = MONTH_YEAR_PATTERN.search(date_lower)
+        if match:
+            month_str, year = match.groups()
+            if month_str in cls.MONTH_NAMES:
+                month_num = cls.MONTH_NAMES[month_str]
+                return f"{cls.MONTH_ABBREV[month_num]} {year}"
+        
+        # Pattern 2: Day Month Year (25 August 2025, 25 aug 2025)
+        match = DAY_MONTH_YEAR_PATTERN.search(date_lower)
+        if match:
+            day, month_str, year = match.groups()
+            if month_str in cls.MONTH_NAMES:
+                month_num = cls.MONTH_NAMES[month_str]
+                return f"{cls.MONTH_ABBREV[month_num]} {year}"
+        
+        # Pattern 3: dd.mm.yy or dd/mm/yy or dd-mm-yy
+        match = DATE_SLASH_PATTERN.search(date_str)
+        if match:
+            day, month, year = match.groups()
+            month = int(month)
+            year = int(year)
+            
+            # Handle 2-digit years
+            if year < 100:
+                year = 2000 + year if year < 50 else 1900 + year
+            
+            if 1 <= month <= 12:
+                return f"{cls.MONTH_ABBREV[month]} {year}"
+        
+        # Pattern 4: mm/dd/yyyy or mm-dd-yyyy (US format)
+        match = re.search(r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})', date_str)
+        if match:
+            first, second, year = match.groups()
+            first, second = int(first), int(second)
+            
+            # Determine if it's mm/dd or dd/mm
+            if first > 12:  # Must be dd/mm
+                month = second
+            elif second > 12:  # Must be mm/dd
+                month = first
+            elif first <= 12 and second <= 12:  # Ambiguous - assume mm/dd (US format)
+                month = first
+            else:
+                month = first
+            
+            if 1 <= month <= 12:
+                return f"{cls.MONTH_ABBREV[month]} {int(year)}"
+        
+        # Pattern 5: Just year (2024)
+        match = YEAR_PATTERN.search(date_str)
+        if match:
+            return match.group(0)
+        
+        # Pattern 6: Quarter notation (Q3 2024)
+        match = QUARTER_PATTERN.search(date_lower)
+        if match:
+            return match.group(1)
+        
+        return date_str  # Return original if no pattern matched
+    
+    @classmethod
+    def parse_date_range(cls, date_str: str) -> Tuple[str, str]:
+        """
+        Parse date range string into start and end dates.
+        Handles: "Aug 2020 - Dec 2022", "2020-Present", "Aug 2020 to Dec 2022"
+        """
+        if not date_str:
+            return ("", "Present")
+        
+        # Split on common separators
+        separators = [' - ', ' – ', ' — ', ' to ', ' TO ', '–', '—', '-']
+        parts = None
+        
+        for sep in separators:
+            if sep in date_str:
+                parts = date_str.split(sep, 1)
+                break
+        
+        if not parts:
+            # Single date - assume it's ongoing
+            parsed = cls.parse_date(date_str)
+            return (parsed or date_str, "Present")
+        
+        start_str = parts[0].strip()
+        end_str = parts[1].strip() if len(parts) > 1 else "Present"
+        
+        start_date = cls.parse_date(start_str) or start_str
+        end_date = cls.parse_date(end_str) or end_str
+        
+        return (start_date, end_date)
+
+
+# ============================================================================
+# MULTI-COLUMN RESUME DETECTION
+# ============================================================================
+
+def detect_columns(text: str) -> List[str]:
+    """
+    Detect and merge multi-column resume layouts.
+    Uses heuristics to identify column boundaries.
+    """
+    lines = text.split('\n')
+    
+    # Detect if resume has columns by checking for:
+    # 1. Lines with excessive spacing in the middle
+    # 2. Multiple sections on the same line
+    # 3. Inconsistent left margins
+    
+    column_indicators = 0
+    processed_lines = []
+    
+    for line in lines:
+        # Check for excessive mid-line spacing (likely columns)
+        if COLUMN_GAP_PATTERN.search(line):
+            column_indicators += 1
+            # Split on large gaps
+            parts = COLUMN_GAP_PATTERN.split(line)
+            processed_lines.extend([p.strip() for p in parts if p.strip()])
+        else:
+            processed_lines.append(line)
+    
+    # If many column indicators found, we likely have a multi-column resume
+    if column_indicators > 3:
+        return processed_lines
+    
+    return lines
+
+
+# ============================================================================
+# ENHANCED PDF EXTRACTION WITH LAYOUT ANALYSIS
+# ============================================================================
+
 def extract_text_from_pdf(file_content: bytes) -> str:
+    """Enhanced PDF extraction with better layout handling."""
     try:
         pdf = PdfReader(io.BytesIO(file_content))
         text = ""
-        for page in pdf.pages:
+        
+        for page_num, page in enumerate(pdf.pages):
             extracted = page.extract_text()
             if extracted:
-                text += extracted + "\n"
+                # Detect and handle multi-column layouts
+                lines = detect_columns(extracted)
+                text += '\n'.join(lines) + "\n"
+        
         return text
     except Exception as e:
         raise ValueError(f"Error reading PDF: {str(e)}")
 
+
 def extract_text_from_docx(file_content: bytes) -> str:
+    """Enhanced DOCX extraction."""
     try:
         doc = Document(io.BytesIO(file_content))
         text = ""
+        
+        # Extract from paragraphs
         for para in doc.paragraphs:
             text += para.text + "\n"
-        # Also extract text from tables (common in resumes)
+        
+        # Extract from tables (common in resumes)
         for table in doc.tables:
             for row in table.rows:
+                row_text = []
                 for cell in row.cells:
-                    text += cell.text + " "
-                text += "\n"
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    text += ' | '.join(row_text) + "\n"
+        
         return text
     except Exception as e:
         raise ValueError(f"Error reading DOCX: {str(e)}")
 
 
+# ============================================================================
+# ENHANCED CONTACT EXTRACTION
+# ============================================================================
+
 def extract_contact_info(text: str, lines: List[str]) -> Dict[str, str]:
-    """Extract name, email, phone, and LinkedIn from resume text."""
-    # Email pattern
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
-    email_match = re.search(email_pattern, text)
+    """Extract contact information with better patterns."""
+    
+    # Email pattern - more comprehensive
+    email_match = EMAIL_PATTERN.search(text)
     email = email_match.group(0) if email_match else ""
     
-    # Phone patterns (various formats)
-    phone_patterns = [
-        r'\+?\d{1,3}[-.\s]?\(?\d{2,3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # International
-        r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # US format
-        r'\d{10,11}',  # Plain 10-11 digits
-    ]
+    # Phone patterns - international support
     phone = ""
-    for pattern in phone_patterns:
-        phone_match = re.search(pattern, text)
+    for pattern in PHONE_PATTERNS:
+        phone_match = pattern.search(text)
         if phone_match:
-            phone = phone_match.group(0)
-            break
+            candidate = phone_match.group(0)
+            # Validate it's not a date or other number
+            if not re.match(r'^\d{4}$', candidate) and len(candidate) >= 10:
+                phone = candidate
+                break
     
     # LinkedIn pattern
-    linkedin_pattern = r'(?:linkedin\.com/in/|linkedin:?\s*)([a-zA-Z0-9-]+)'
-    linkedin_match = re.search(linkedin_pattern, text, re.IGNORECASE)
-    linkedin = f"linkedin.com/in/{linkedin_match.group(1)}" if linkedin_match else ""
+    linkedin = ""
+    for pattern in LINKEDIN_PATTERNS:
+        linkedin_match = pattern.search(text)
+        if linkedin_match:
+            linkedin = f"linkedin.com/in/{linkedin_match.group(1)}"
+            break
     
-    # Name: First non-empty line that doesn't look like contact info
+    # Name extraction - improved heuristics
     name = "Unknown Candidate"
-    for line in lines[:5]:  # Check first 5 lines
+    for line in lines[:10]:  # Check first 10 lines
         line_clean = line.strip()
-        # Skip if it looks like email, phone, address, or URL
-        if (line_clean and 
-            len(line_clean) < 60 and 
-            not re.search(email_pattern, line_clean) and
-            not re.search(r'\d{5,}', line_clean) and  # Zip codes
-            not re.search(r'linkedin|github|http|www\.', line_clean, re.IGNORECASE) and
-            not re.search(r'^\+?\d[\d\s\-()]+$', line_clean) and  # Phone
-            re.search(r'[A-Za-z]{2,}', line_clean)):  # Has letters
+        
+        # Skip if empty or too long
+        if not line_clean or len(line_clean) > 60:
+            continue
+        
+        # Skip lines with contact info
+        if (EMAIL_PATTERN.search(line_clean) or
+            re.search(r'\d{5,}', line_clean) or
+            re.search(r'linkedin|github|http|www\.', line_clean, re.IGNORECASE) or
+            re.search(r'^\+?\d[\d\s\-()]+$', line_clean)):
+            continue
+        
+        # Skip common job titles and section headers
+        if line_clean.lower() in COMMON_JOB_TITLES:
+            continue
+        
+        # Must have at least 2 letters
+        if not re.search(r'[A-Za-z]{2,}', line_clean):
+            continue
+        
+        # Check if it looks like a name (2-4 words, capitalized)
+        words = line_clean.split()
+        if 2 <= len(words) <= 4:
+            if all(w[0].isupper() for w in words if w):
+                name = line_clean
+                break
+        elif len(words) == 1 and len(line_clean) > 3:
+            # Single name (uncommon but possible)
             name = line_clean
             break
     
-    return {"name": name, "email": email, "phone": phone, "linkedin": linkedin}
+    return {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "linkedin": linkedin
+    }
 
+
+# ============================================================================
+# ENHANCED SECTION DETECTION
+# ============================================================================
 
 def detect_section(line: str) -> Optional[str]:
-    """Detect if a line is a section header and return section type."""
+    """Enhanced section header detection."""
     line_lower = line.lower().strip()
-    line_clean = re.sub(r'[:\-–—|•]', '', line_lower).strip()
+    line_clean = re.sub(r'[:\-–—|•=_]', '', line_lower).strip()
     
-    section_keywords = {
-        "summary": ["summary", "profile", "professional summary", "objective", "about me", "about", "career objective"],
-        "experience": ["experience", "work experience", "work history", "employment", "professional experience", "career history", "employment history"],
-        "education": ["education", "academic background", "qualifications", "academic", "degrees", "certifications"],
-        "skills": ["skills", "technical skills", "technologies", "core competencies", "competencies", "expertise", "tools", "programming languages"],
-        "projects": ["projects", "personal projects", "key projects"],
-        "certifications": ["certifications", "certificates", "licenses"],
-    }
-    
-    # Check if line is short enough to be a header (usually < 40 chars)
-    if len(line) > 60:
+    # Skip if line is too long to be a header
+    if len(line) > 80:
         return None
     
+    section_keywords = {
+        "summary": ["summary", "profile", "professional summary", "objective", 
+                    "about me", "about", "career objective", "professional profile",
+                    "career summary", "executive summary"],
+        "experience": ["experience", "work experience", "work history", "employment", 
+                       "professional experience", "career history", "employment history",
+                       "work", "professional background", "relevant experience"],
+        "education": ["education", "academic background", "qualifications", "academic",
+                      "degrees", "academic qualifications", "educational background"],
+        "skills": ["skills", "technical skills", "technologies", "core competencies",
+                   "competencies", "expertise", "tools", "programming languages",
+                   "technical proficiencies", "professional skills", "key skills"],
+        "projects": ["projects", "personal projects", "key projects", "notable projects",
+                     "academic projects", "professional projects"],
+        "certifications": ["certifications", "certificates", "licenses", "credentials",
+                           "professional certifications"],
+    }
+    
+    # Check for exact or close matches
     for section, keywords in section_keywords.items():
         for keyword in keywords:
-            if keyword == line_clean or line_clean.startswith(keyword) or line_clean.endswith(keyword):
+            if (keyword == line_clean or 
+                line_clean.startswith(keyword) or 
+                line_clean.endswith(keyword) or
+                keyword in line_clean):
                 return section
     
     return None
 
 
-def parse_experience_section(lines: List[str]) -> List[Dict[str, Any]]:
-    """Parse experience section into structured job entries."""
-    experiences: List[Dict[str, Any]] = []
+# ============================================================================
+# ENHANCED EXPERIENCE PARSING
+# ============================================================================
 
+def parse_experience_section(lines: List[str]) -> List[Dict[str, Any]]:
+    """Enhanced experience parsing with better date and bullet handling."""
+    experiences = []
+    
     if not lines:
         return experiences
-
-    # Patterns for job detection
-    date_pattern = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]*\d{4}|(?:19|20)\d{2}(?:\s*(?:-|–|—|to)\s*(?:Present|Current|Now|(?:19|20)\d{2}))?|(?:\d{1,2}/\d{4})'
-    title_company_pattern = r'^(.{2,80}?)\s*(?:[-–—|@,]\s*|\sat\s)(.{2,80})'
-
-    # Heuristics helpers
-    company_markers = ["inc", "llc", "ltd", "co", "corp", "corporation", "company", "gmbh", "plc", "s.a.", "sarl", "limited"]
-    title_markers = ["engineer", "developer", "manager", "director", "lead", "senior", "sr\.", "jr\.", "consultant", "analyst", "officer", "architect", "designer", "vp", "vice"]
-
-    def is_date_line(s: str) -> bool:
-        return bool(re.search(date_pattern, s, re.IGNORECASE))
-
-    def is_likely_company(s: str) -> bool:
-        low = s.lower()
-        if any(marker in low for marker in company_markers):
-            return True
-        # company names often contain '&' or 'and'
-        if '&' in s or ' and ' in low:
-            return True
-        # all-caps short lines may be company
-        if s.isupper() and 2 < len(s) < 60:
-            return True
-        return False
-
-    def is_likely_title(s: str) -> bool:
-        low = s.lower()
-        if any(marker in low for marker in title_markers):
-            return True
-        # titles often contain role words and are sentence-cased
-        words = s.split()
-        if len(words) <= 6 and any(w[0].isupper() for w in words if w):
-            return True
-        return False
-
-    # Helper to increment month in an end-date string (e.g., 'Feb 2027' -> 'Mar 2027')
-    def increment_month_string(s: str) -> str:
-        if not s:
-            return s
-        s = s.strip()
-        # Handle Present/Current
-        if re.search(r'Present|Current|Now', s, re.IGNORECASE):
-            return s
-
-        # Month name patterns
-        month_map = {
-            'jan': 1, 'january': 1,
-            'feb': 2, 'february': 2,
-            'mar': 3, 'march': 3,
-            'apr': 4, 'april': 4,
-            'may': 5,
-            'jun': 6, 'june': 6,
-            'jul': 7, 'july': 7,
-            'aug': 8, 'august': 8,
-            'sep': 9, 'sept': 9, 'september': 9,
-            'oct': 10, 'october': 10,
-            'nov': 11, 'november': 11,
-            'dec': 12, 'december': 12
-        }
-
-        # Try MonthName YYYY
-        m = re.search(r'([A-Za-z]+)\s+(19|20)\d{2}', s)
-        if m:
-            mon = m.group(1).lower()
-            ym = re.search(r'(19|20)\d{2}', s)
-            year = int(ym.group(0)) if ym else None
-            if mon in month_map and year:
-                month = month_map[mon]
-                month += 1
-                if month > 12:
-                    month = 1
-                    year += 1
-                short_names = {1: 'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
-                return f"{short_names[month]} {year}"
-
-        # Try mm/yyyy or m/yyyy
-        m2 = re.search(r'(\d{1,2})[\/\-](19|20)\d{2}', s)
-        if m2:
-            mon = int(m2.group(1))
-            year = int(re.search(r'(19|20)\d{2}', s).group(0))
-            mon += 1
-            if mon > 12:
-                mon = 1
-                year += 1
-            return f"{mon:02d}/{year}"
-
-        # If we only have a year, increment year (rare)
-        y = re.search(r'^(19|20)\d{2}$', s.strip())
-        if y:
-            year = int(y.group(0)) + 1
-            return str(year)
-
-        # Otherwise, return original
-        return s
-
-    # Build blocks anchored by date lines. Include up to 2 lines above a date to capture title/company.
-    indices = [i for i, ln in enumerate(lines) if is_date_line(ln)]
-
-    if indices:
-        for idx_pos, date_idx in enumerate(indices):
-            start_idx = max(0, date_idx - 2)
-            end_idx = indices[idx_pos + 1] if idx_pos + 1 < len(indices) else len(lines)
-            block = [lines[i] for i in range(start_idx, end_idx)]
-
-            # header candidates: first few non-empty lines in the block
-            nonempty = [b.strip() for b in block if b.strip()]
-            header_candidates = nonempty[:3]
-
-            title = "Role"
-            company = "Company"
-
-            # Try to identify title/company
-            if header_candidates:
-                if len(header_candidates) >= 2:
-                    a, b = header_candidates[0], header_candidates[1]
-                    # prefer title/company ordering if heuristics match
-                    if is_likely_title(a) and is_likely_company(b):
-                        title, company = a, b
-                    elif is_likely_company(a) and is_likely_title(b):
-                        title, company = b, a
-                    else:
-                        # If company is on the next line (often italic below title),
-                        # it's typically shorter and contains few words — treat that as company.
-                        def short_company_candidate(s: str) -> bool:
-                            ws = s.split()
-                            if not s:
-                                return False
-                            if len(ws) <= 6 and len(s) < 60 and not re.search(r'\d{4}', s):
-                                return True
-                            return False
-
-                        if short_company_candidate(b) and len(a.split()) > len(b.split()):
-                            title, company = a, b
-                        else:
-                            # try regex split on ' at ' or separators
-                            m = re.match(title_company_pattern, header_candidates[0], re.IGNORECASE)
-                            if m:
-                                title, company = m.group(1).strip(), m.group(2).strip()
-                            else:
-                                title, company = header_candidates[0], header_candidates[1]
-                else:
-                    # single header line
-                    single = header_candidates[0]
-                    m = re.match(title_company_pattern, single, re.IGNORECASE)
-                    if m:
-                        title, company = m.group(1).strip(), m.group(2).strip()
-                    else:
-                        # try to remove dates and use remaining as title
-                        title = re.sub(date_pattern, '', single, flags=re.IGNORECASE).strip() or "Role"
-
-            # Extract date string from block (first match)
-            date_match = re.search(date_pattern, ' '.join(block), re.IGNORECASE)
-            dates = date_match.group(0) if date_match else ""
-
-            # Normalize date ranges
-            start_date = ""
-            end_date = ""
-            if dates:
-                parts = re.split(r'\s*(?:-|–|—|to)\s*', dates, maxsplit=1, flags=re.IGNORECASE)
-                start_date = parts[0].strip() if parts else ""
-                if len(parts) > 1:
-                    raw_end = parts[1].strip()
-                    end_date = increment_month_string(raw_end)
-                else:
-                    end_date = "Present" if re.search(r'Present|Current|Now', dates, re.IGNORECASE) else ""
-
-            # Descriptions: take lines after header candidates in the block that look like bullets or sentences
-            descriptions: List[str] = []
-            # Determine how many header lines we consumed from the block
-            consumed = 0
-            # find first non-empty lines positions
-            pos = 0
-            for i, b in enumerate(block):
-                if b.strip():
-                    pos = i
-                    break
-            # Count header lines used
-            for h in header_candidates:
-                # try to find h in block sequentially
-                for j in range(consumed, len(block)):
-                    if block[j].strip() == h:
-                        consumed = j + 1
-                        break
-
-            for l in block[consumed:]:
-                raw_line = l
-                if not raw_line.strip():
-                    continue
-                if is_date_line(raw_line):
-                    continue
-                bullet_start = bool(re.match(r'^[\s]*[•\-\*\u2022○◦▪►→·]', raw_line))
-                indented = bool(re.match(r'^[\s]+\S', raw_line))
-                clean_line = re.sub(r'^[\s]*[•\-\*\u2022○◦▪►→·]?\s*', '', raw_line).strip()
-                if bullet_start:
-                    if clean_line:
-                        descriptions.append(clean_line)
-                elif indented:
-                    if clean_line:
-                        if descriptions:
-                            descriptions[-1] = descriptions[-1] + ' ' + clean_line
-                        else:
-                            descriptions.append(clean_line)
-                else:
-                    # Non-bullet line: treat as a description sentence only if reasonably long
-                    if clean_line and len(clean_line) > 20:
-                        descriptions.append(clean_line)
-
-            experiences.append({
-                "title": title or "Role",
-                "company": company or "Company",
-                "startDate": start_date,
-                "endDate": end_date or "Present",
-                "description": descriptions
-            })
-    else:
-        # fallback: earlier line-based heuristic when no date anchors found
-        current_job: Dict[str, Any] = {}
-        current_descriptions: List[str] = []
-        title_company_pattern_relaxed = title_company_pattern
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-            title_match = re.match(title_company_pattern_relaxed, line_stripped, re.IGNORECASE)
-            if title_match:
-                # If there's an active job, finalize it before starting a new one
-                if current_job:
-                    current_job["description"] = current_descriptions
-                    experiences.append(current_job)
-                # start a new job
-                title = title_match.group(1).strip()
-                company = title_match.group(2).strip()
-                current_job = {"title": title, "company": company, "startDate": "", "endDate": "Present"}
-                current_descriptions = []
-                continue
-            if current_job:
-                # same bullet logic as before
-                raw_line = line
-                bullet_start = bool(re.match(r'^[\s]*[•\-\*\u2022○◦▪►→·]', raw_line))
-                indented = bool(re.match(r'^[\s]+\S', raw_line))
-                clean_line = re.sub(r'^[\s]*[•\-\*\u2022○◦▪►→·]?\s*', '', raw_line).strip()
-                if bullet_start:
-                    if clean_line:
-                        current_descriptions.append(clean_line)
-                elif indented:
-                    if clean_line:
-                        if current_descriptions:
-                            current_descriptions[-1] = current_descriptions[-1] + ' ' + clean_line
-                        else:
-                            current_descriptions.append(clean_line)
-                else:
-                    if clean_line and len(clean_line) > 20:
-                        current_descriptions.append(clean_line)
-        if current_job:
-            current_job["description"] = current_descriptions
-            experiences.append(current_job)
-
+    
+    # Find all lines with dates
+    date_indices = []
+    for i, line in enumerate(lines):
+        if DATE_PATTERN.search(line):
+            date_indices.append(i)
+    
+    if not date_indices:
+        # No dates found - try simpler parsing
+        return parse_experience_fallback(lines)
+    
+    # Process each job entry
+    for idx_pos, date_idx in enumerate(date_indices):
+        # Get the block for this job (from date line to next date or end)
+        end_idx = date_indices[idx_pos + 1] if idx_pos + 1 < len(date_indices) else len(lines)
+        
+        # Extract title, company, dates
+        title = "Role"
+        company = "Company"
+        dates = ""
+        
+        # The line with the date usually contains the title too
+        date_line = lines[date_idx].strip()
+        date_match = DATE_PATTERN.search(date_line)
+        if date_match:
+            dates = date_match.group(0)
+            # Extract title from the date line (text before the date)
+            title_part = date_line[:date_match.start()].strip()
+            if title_part and not any(pattern.match(title_part) for pattern in BULLET_PATTERNS):
+                title = title_part
+        
+        # Parse dates
+        start_date, end_date = DateParser.parse_date_range(dates)
+        
+        # Company is usually on the next non-bullet line after the date
+        for i in range(date_idx + 1, end_idx):
+            line_stripped = lines[i].strip()
+            if (line_stripped and 
+                not any(pattern.match(lines[i]) for pattern in BULLET_PATTERNS) and
+                not DATE_PATTERN.search(line_stripped)):
+                company = line_stripped
+                break
+        
+        # Extract bullet points from the block
+        block = lines[date_idx:end_idx]
+        desc_text = '\n'.join(block)
+        descriptions = detect_bullet_points(desc_text)
+        
+        # Filter out title, company, and date lines from descriptions
+        descriptions = [d for d in descriptions 
+                       if d not in [title, company] 
+                       and not DATE_PATTERN.search(d)
+                       and len(d) > 10]
+        
+        experiences.append({
+            "title": title or "Role",
+            "company": company or "Company",
+            "startDate": start_date,
+            "endDate": end_date,
+            "description": descriptions[:15]  # Limit to 15 bullets
+        })
+    
     return experiences
 
 
-def parse_education_section(lines: List[str]) -> List[Dict[str, Any]]:
-    """Parse education section into structured entries."""
-    education_entries = []
-    current_entry: Dict[str, Any] = {}
+def parse_experience_fallback(lines: List[str]) -> List[Dict[str, Any]]:
+    """Fallback parser when no dates are found. Handles multiple formats."""
+    experiences = []
+    current_job = None
+    i = 0
     
-    degree_keywords = ["bachelor", "master", "phd", "doctor", "associate", "diploma", "b.s.", "m.s.", "b.a.", "m.a.", "mba", "b.tech", "m.tech", "bs", "ms", "ba", "ma"]
-    year_pattern = r'(?:19|20)\d{2}'
+    while i < len(lines):
+        line_stripped = lines[i].strip()
+        
+        # Skip empty or very short lines
+        if not line_stripped or len(line_stripped) < 3:
+            i += 1
+            continue
+        
+        # Skip bullet points
+        if any(pattern.match(lines[i]) for pattern in BULLET_PATTERNS):
+            # If we have a current job, add this as a description
+            if current_job:
+                desc = detect_bullet_points(lines[i])[0] if detect_bullet_points(lines[i]) else None
+                if desc and len(desc) > 10:
+                    current_job["description"].append(desc)
+            i += 1
+            continue
+        
+        # Look for title/company patterns with separator
+        if ' at ' in line_stripped or ' @ ' in line_stripped:
+            if current_job:
+                experiences.append(current_job)
+            
+            for sep in [' at ', ' @ ']:
+                if sep in line_stripped:
+                    parts = line_stripped.split(sep, 1)
+                    current_job = {
+                        "title": parts[0].strip(),
+                        "company": parts[1].strip(),
+                        "startDate": "",
+                        "endDate": "Present",
+                        "description": []
+                    }
+                    break
+            i += 1
+            continue
+        
+        # Look for title-company on consecutive lines (new logic)
+        # If we find a non-bullet line followed by another non-bullet line,
+        # treat first as title, second as company
+        if i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            # Check if next line exists, is not a bullet, and is not too long
+            if (next_line and 
+                len(next_line) < 80 and
+                not any(pattern.match(lines[i + 1]) for pattern in BULLET_PATTERNS)):
+                
+                # Save previous job if exists
+                if current_job:
+                    experiences.append(current_job)
+                
+                # Create new job
+                current_job = {
+                    "title": line_stripped,
+                    "company": next_line,
+                    "startDate": "",
+                    "endDate": "Present",
+                    "description": []
+                }
+                i += 2  # Skip both lines
+                continue
+        
+        i += 1
+    
+    if current_job:
+        experiences.append(current_job)
+    
+    return experiences
+
+
+# ============================================================================
+# ENHANCED EDUCATION PARSING
+# ============================================================================
+
+def parse_education_section(lines: List[str]) -> List[Dict[str, Any]]:
+    """Enhanced education parsing."""
+    education_entries = []
+    current_entry = None
+    
+    degree_keywords = ["bachelor", "master", "phd", "doctor", "doctorate", "associate", 
+                       "diploma", "b.s.", "m.s.", "b.a.", "m.a.", "mba", "b.tech", 
+                       "m.tech", "bs", "ms", "ba", "ma", "bsc", "msc", "be", "me"]
     
     for line in lines:
         line_stripped = line.strip()
@@ -382,91 +617,149 @@ def parse_education_section(lines: List[str]) -> List[Dict[str, Any]]:
         
         line_lower = line_stripped.lower()
         has_degree = any(kw in line_lower for kw in degree_keywords)
-        has_year = bool(re.search(year_pattern, line_stripped))
         
-        if has_degree or has_year:
+        # Try to parse date
+        parsed_date = DateParser.parse_date(line_stripped)
+        has_date = parsed_date and parsed_date != line_stripped
+        
+        if has_degree or has_date:
             if current_entry and current_entry.get("degree"):
                 education_entries.append(current_entry)
             
-            # Extract year
-            year_match = re.search(year_pattern, line_stripped)
-            year = year_match.group(0) if year_match else ""
-            
-            # Try to separate degree and institution
             degree = line_stripped
             institution = ""
+            grad_date = ""
             
-            # Common separators
-            for sep in [" - ", " at ", " from ", ", ", " | "]:
+            # Extract date if present
+            if has_date:
+                grad_date = parsed_date
+                degree = re.sub(r'\d{4}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec', '', degree, flags=re.IGNORECASE).strip()
+            
+            # Try to separate degree and institution
+            for sep in [' - ', ' at ', ' from ', ', ', ' | ', '\t']:
                 if sep in line_stripped:
-                    parts = line_stripped.split(sep)
+                    parts = line_stripped.split(sep, 1)
                     degree = parts[0].strip()
                     institution = parts[1].strip() if len(parts) > 1 else ""
                     break
             
             current_entry = {
-                "degree": re.sub(year_pattern, '', degree).strip(),
+                "degree": degree or "Degree",
                 "institution": institution or "Institution",
-                "graduationDate": year or "N/A"
+                "graduationDate": grad_date or "N/A"
             }
-        elif current_entry:
-            # Additional info for current entry
-            if not current_entry.get("institution") or current_entry.get("institution") == "Institution":
-                current_entry["institution"] = line_stripped
+        elif current_entry and not current_entry.get("institution"):
+            # This line might be the institution
+            current_entry["institution"] = line_stripped
     
     if current_entry and current_entry.get("degree"):
         education_entries.append(current_entry)
     
-    # Fallback if nothing parsed
-    if not education_entries and lines:
-        combined = " ".join(line.strip() for line in lines[:3] if line.strip())
-        education_entries.append({
-            "degree": combined[:100] if combined else "Education details in resume",
-            "institution": "",
-            "graduationDate": ""
-        })
-    
     return education_entries
 
 
+# ============================================================================
+# ENHANCED SKILLS PARSING
+# ============================================================================
+
 def parse_skills_section(lines: List[str]) -> List[Dict[str, str]]:
-    """Parse skills section into list of skills."""
+    """Enhanced skills parsing with better tokenization and categorization."""
     skills = []
     seen = set()
     
-    # Combine all lines
-    text = " ".join(line.strip() for line in lines)
+    text = ' '.join(line.strip() for line in lines)
     
-    # Split by common delimiters
-    potential_skills = re.split(r'[,|•·:\n/]', text)
+    # Split by common delimiters but be smarter about it
+    # First, try to detect if skills are on separate lines
+    if any(BULLET_PREFIX_PATTERN.match(line) for line in lines):
+        # Bullet-pointed skills
+        potential_skills = []
+        for line in lines:
+            cleaned = BULLET_PREFIX_PATTERN.sub('', line).strip()
+            if cleaned:
+                potential_skills.append(cleaned)
+    else:
+        # Try splitting by em-dash first (common in paragraph-style skills)
+        if '—' in text or '–' in text:
+            # Split by em-dash or en-dash
+            potential_skills = re.split(r'[—–]\s*', text)
+        else:
+            # Comma or delimiter-separated skills
+            potential_skills = SKILL_DELIMITER_PATTERN.split(text)
     
     for skill in potential_skills:
-        # Clean up the skill
-        clean_skill = re.sub(r'^\s*[-–—*○◦▪►]\s*', '', skill)
+        # Clean up
+        clean_skill = skill.strip()
         clean_skill = re.sub(r'\([^)]*\)', '', clean_skill)  # Remove parenthetical
-        clean_skill = clean_skill.strip()
+        clean_skill = BULLET_PREFIX_PATTERN.sub('', clean_skill)
         
-        # Validate skill
-        if (clean_skill and 
-            2 < len(clean_skill) < 50 and 
-            clean_skill.lower() not in seen and
-            not re.match(r'^\d+$', clean_skill)):  # Not just numbers
-            skills.append({"name": clean_skill, "level": ""})
-            seen.add(clean_skill.lower())
+        # Remove category prefixes like "Languages:", "Libraries:", "Tools:", etc.
+        clean_skill = re.sub(r'^(?:\w+\s+)?(?:Languages?|Libraries?|Frameworks?|Tools?|Technologies?|Skills?):\s*', '', clean_skill, flags=re.IGNORECASE)
+        
+        # Split text further if it contains multiple "Name — description" patterns
+        # E.g., "FastAPI —description, Automation — description" should become ["FastAPI", "Automation"]
+        sub_skills = []
+        if '—' in clean_skill or '–' in clean_skill:
+            # This might have multiple skills separated by commas, each with em-dash
+            # Split by comma first
+            comma_parts = clean_skill.split(',')
+            for part in comma_parts:
+                part = part.strip()
+                # Extract text before em-dash/en-dash
+                if '—' in part or '–' in part:
+                    skill_name = re.split(r'\s*[—–]\s*', part)[0].strip()
+                    if skill_name:
+                        sub_skills.append(skill_name)
+                elif part and len(part) <= 50:  # Might be a skill without description
+                    sub_skills.append(part)
+        else:
+            # No em-dash, treat as single skill
+            sub_skills = [clean_skill]
+        
+        # Process each extracted skill
+        for sk in sub_skills:
+            sk = sk.strip()
+            
+            # Skip empty or invalid
+            if not sk or len(sk) < 2:
+                continue
+            
+            # Skip description fragments
+            description_indicators = ['proficient', 'expertise', 'skilled', 'experience', 'knowledge', 'ability', 'familiar', 'using', 'enabling']
+            if sk and sk[0].islower():
+                continue
+            if any(word in sk.lower() for word in description_indicators):
+                continue
+            
+            # Normalize for deduplication
+            skill_lower = re.sub(r'\s+\d+(\.\w*)?$', '', sk.lower())
+            
+            # Validate and add
+            if (2 <= len(sk) <= 50 and 
+                skill_lower not in seen and
+                not re.match(r'^\d+$', sk) and
+                not re.match(r'^[\W_]+$', sk)):
+                skills.append({"name": sk, "level": ""})
+                seen.add(skill_lower)
     
-    return skills[:30]  # Limit to 30 skills
+    return skills[:50]  # Limit to 50 skills
 
+
+# ============================================================================
+# MAIN PARSER
+# ============================================================================
 
 def parse_resume_text(text: str) -> Dict[str, Any]:
-    """Parse resume text into structured data."""
-    # Preserve raw lines (to keep indentation and bullet markers) and a stripped version for header/contact heuristics
-    raw_lines = [line for line in text.split('\n') if line.strip()]
-    stripped_lines = [line.strip() for line in raw_lines]
-
-    # Extract contact info using stripped lines
-    contact = extract_contact_info(text, stripped_lines)
-
-    # Section extraction using state machine; store raw lines per section to preserve bullets/indent
+    """Main parsing function with enhanced logic."""
+    
+    # Handle multi-column layouts
+    lines = detect_columns(text)
+    raw_lines = [line for line in lines if line.strip()]
+    
+    # Extract contact info
+    contact = extract_contact_info(text, raw_lines)
+    
+    # Section extraction
     sections = {
         "summary": [],
         "experience": [],
@@ -475,28 +768,26 @@ def parse_resume_text(text: str) -> Dict[str, Any]:
         "projects": [],
         "certifications": [],
     }
-
+    
     current_section = "summary"
-
-    # Use both raw and stripped lines to detect headers but keep raw for content
-    for raw, stripped in zip(raw_lines, stripped_lines):
-        detected = detect_section(stripped)
+    
+    for line in raw_lines:
+        detected = detect_section(line)
         if detected:
             current_section = detected
             continue
-        sections[current_section].append(raw)
+        sections[current_section].append(line)
     
-    # Process each section
-    # Pass raw experience lines (with indentation) so bullets and continuations can be detected
+    # Process sections
     experience = parse_experience_section(sections["experience"])
     education = parse_education_section(sections["education"])
     skills = parse_skills_section(sections["skills"])
     
-    # If skills are empty, try to extract from other sections
+    # Fallback for skills
     if not skills and sections["summary"]:
-        skills = parse_skills_section(sections["summary"][:3])
+        skills = parse_skills_section(sections["summary"])
     
-    summary = " ".join(sections["summary"][:5])  # First 5 lines of summary
+    summary = ' '.join(sections["summary"][:5])
     
     return {
         "name": contact["name"],
@@ -511,7 +802,7 @@ def parse_resume_text(text: str) -> Dict[str, Any]:
 
 
 async def parse_resume(file_content: bytes, filename: str) -> Dict[str, Any]:
-    """Main entry point for resume parsing."""
+    """Main entry point for resume parsing with enhanced error handling."""
     text = ""
     filename_lower = filename.lower()
     
@@ -521,17 +812,45 @@ async def parse_resume(file_content: bytes, filename: str) -> Dict[str, Any]:
         elif filename_lower.endswith('.docx'):
             text = extract_text_from_docx(file_content)
         else:
-            # Try decoding as text
             try:
                 text = file_content.decode('utf-8')
-            except Exception:
-                raise ValueError("Unsupported file format and could not decode as text")
+            except UnicodeDecodeError:
+                # Try other encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        text = file_content.decode(encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    raise ValueError("Unsupported file format or encoding")
     except ValueError as e:
         raise e
     except Exception as e:
         raise ValueError(f"Failed to parse file: {str(e)}")
-            
+    
     if not text.strip():
         raise ValueError("Could not extract any text from the file")
-
-    return parse_resume_text(text)
+    
+    try:
+        result = parse_resume_text(text)
+        # Add validation - use filename as fallback for name
+        if not result.get('name') or result['name'] == 'Unknown Candidate':
+            candidate_name = filename.replace('.pdf', '').replace('.docx', '').replace('_', ' ').replace('-', ' ').strip()
+            if candidate_name and len(candidate_name) < 60:
+                result['name'] = candidate_name
+        
+        return result
+    except Exception as e:
+        # Return partial results with error indication
+        return {
+            "name": "Unknown Candidate",
+            "email": "",
+            "phone": "",
+            "linkedin": "",
+            "summary": "",
+            "experience": [],
+            "education": [],
+            "skills": [],
+            "parsing_error": str(e)
+        }
