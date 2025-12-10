@@ -100,13 +100,17 @@ async def invite_member(pod_id: str, invite: PodInvite, current_user: UserInDB =
         metadata={"pod_id": pod_id, "pod_name": pod["name"], "inviter_name": current_user.name}
     )
 
-    # Send email notification
-    await send_pod_invite_email(
-        to_email=invited_user["email"],
-        to_name=invited_user["name"],
-        pod_name=pod["name"],
-        inviter_name=current_user.name
-    )
+    # Send email notification (fail silently if email fails)
+    try:
+        await send_pod_invite_email(
+            to_email=invited_user["email"],
+            to_name=invited_user["name"],
+            pod_name=pod["name"],
+            inviter_name=current_user.name
+        )
+    except Exception as e:
+        # Log error but don't fail the request since user was added
+        print(f"Failed to send invite email: {e}")
     
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
     return PodInDB(**updated_pod)
@@ -214,14 +218,17 @@ async def add_comment(
         # Fetch resume owner's email for notification
         resume_owner = await db.users.find_one({"_id": ObjectId(shared_resume_data["resume_owner_id"])})
         if resume_owner:
-            await send_resume_comment_email(
-                to_email=resume_owner["email"],
-                to_name=resume_owner["name"],
-                commenter_name=current_user.name,
-                resume_name=shared_resume_data.get("version_resume", {}).get("name", "Resume"),
-                comment_preview=comment.text,
-                pod_name=pod["name"]
-            )
+            try:
+                await send_resume_comment_email(
+                    to_email=resume_owner["email"],
+                    to_name=resume_owner["name"],
+                    commenter_name=current_user.name,
+                    resume_name=shared_resume_data.get("version_resume", {}).get("name", "Resume"),
+                    comment_preview=comment.text,
+                    pod_name=pod["name"]
+                )
+            except Exception as e:
+                print(f"Failed to send comment email: {e}")
 
     updated_pod = await db.pods.find_one({"_id": ObjectId(pod_id)})
     return PodInDB(**updated_pod)
