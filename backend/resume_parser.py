@@ -36,7 +36,7 @@ def extract_text_from_docx(file_content: bytes) -> str:
 def extract_contact_info(text: str, lines: List[str]) -> Dict[str, str]:
     """Extract name, email, phone, and LinkedIn from resume text."""
     # Email pattern
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
     email_match = re.search(email_pattern, text)
     email = email_match.group(0) if email_match else ""
     
@@ -104,86 +104,266 @@ def detect_section(line: str) -> Optional[str]:
 
 def parse_experience_section(lines: List[str]) -> List[Dict[str, Any]]:
     """Parse experience section into structured job entries."""
-    experiences = []
-    current_job: Dict[str, Any] = {}
-    current_descriptions: List[str] = []
-    
+    experiences: List[Dict[str, Any]] = []
+
+    if not lines:
+        return experiences
+
     # Patterns for job detection
-    date_pattern = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]*\d{4}|(?:20\d{2}|19\d{2})[\s\-–—to]+(?:Present|Current|Now|20\d{2}|19\d{2})|(?:\d{1,2}/\d{4})'
-    title_company_pattern = r'^([A-Z][^,|•\n]{2,40})\s*(?:[-–—|@,at]\s*|\sat\s)([A-Z][^,|\n]{2,40})'
-    
-    for i, line in enumerate(lines):
-        line_stripped = line.strip()
-        if not line_stripped:
-            continue
-        
-        # Check if this line looks like a new job entry (has dates)
-        has_date = bool(re.search(date_pattern, line_stripped, re.IGNORECASE))
-        
-        # Check if it looks like a title/company line
-        title_match = re.match(title_company_pattern, line_stripped, re.IGNORECASE)
-        
-        # If we found a new job header
-        if has_date or (title_match and i < len(lines) - 1):
-            # Save previous job if exists
-            if current_job:
-                current_job["description"] = current_descriptions
-                experiences.append(current_job)
-            
-            # Extract dates
-            date_match = re.search(date_pattern, line_stripped, re.IGNORECASE)
+    date_pattern = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]*\d{4}|(?:19|20)\d{2}(?:\s*(?:-|–|—|to)\s*(?:Present|Current|Now|(?:19|20)\d{2}))?|(?:\d{1,2}/\d{4})'
+    title_company_pattern = r'^(.{2,80}?)\s*(?:[-–—|@,]\s*|\sat\s)(.{2,80})'
+
+    # Heuristics helpers
+    company_markers = ["inc", "llc", "ltd", "co", "corp", "corporation", "company", "gmbh", "plc", "s.a.", "sarl", "limited"]
+    title_markers = ["engineer", "developer", "manager", "director", "lead", "senior", "sr\.", "jr\.", "consultant", "analyst", "officer", "architect", "designer", "vp", "vice"]
+
+    def is_date_line(s: str) -> bool:
+        return bool(re.search(date_pattern, s, re.IGNORECASE))
+
+    def is_likely_company(s: str) -> bool:
+        low = s.lower()
+        if any(marker in low for marker in company_markers):
+            return True
+        # company names often contain '&' or 'and'
+        if '&' in s or ' and ' in low:
+            return True
+        # all-caps short lines may be company
+        if s.isupper() and 2 < len(s) < 60:
+            return True
+        return False
+
+    def is_likely_title(s: str) -> bool:
+        low = s.lower()
+        if any(marker in low for marker in title_markers):
+            return True
+        # titles often contain role words and are sentence-cased
+        words = s.split()
+        if len(words) <= 6 and any(w[0].isupper() for w in words if w):
+            return True
+        return False
+
+    # Helper to increment month in an end-date string (e.g., 'Feb 2027' -> 'Mar 2027')
+    def increment_month_string(s: str) -> str:
+        if not s:
+            return s
+        s = s.strip()
+        # Handle Present/Current
+        if re.search(r'Present|Current|Now', s, re.IGNORECASE):
+            return s
+
+        # Month name patterns
+        month_map = {
+            'jan': 1, 'january': 1,
+            'feb': 2, 'february': 2,
+            'mar': 3, 'march': 3,
+            'apr': 4, 'april': 4,
+            'may': 5,
+            'jun': 6, 'june': 6,
+            'jul': 7, 'july': 7,
+            'aug': 8, 'august': 8,
+            'sep': 9, 'sept': 9, 'september': 9,
+            'oct': 10, 'october': 10,
+            'nov': 11, 'november': 11,
+            'dec': 12, 'december': 12
+        }
+
+        # Try MonthName YYYY
+        m = re.search(r'([A-Za-z]+)\s+(19|20)\d{2}', s)
+        if m:
+            mon = m.group(1).lower()
+            ym = re.search(r'(19|20)\d{2}', s)
+            year = int(ym.group(0)) if ym else None
+            if mon in month_map and year:
+                month = month_map[mon]
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+                short_names = {1: 'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+                return f"{short_names[month]} {year}"
+
+        # Try mm/yyyy or m/yyyy
+        m2 = re.search(r'(\d{1,2})[\/\-](19|20)\d{2}', s)
+        if m2:
+            mon = int(m2.group(1))
+            year = int(re.search(r'(19|20)\d{2}', s).group(0))
+            mon += 1
+            if mon > 12:
+                mon = 1
+                year += 1
+            return f"{mon:02d}/{year}"
+
+        # If we only have a year, increment year (rare)
+        y = re.search(r'^(19|20)\d{2}$', s.strip())
+        if y:
+            year = int(y.group(0)) + 1
+            return str(year)
+
+        # Otherwise, return original
+        return s
+
+    # Build blocks anchored by date lines. Include up to 2 lines above a date to capture title/company.
+    indices = [i for i, ln in enumerate(lines) if is_date_line(ln)]
+
+    if indices:
+        for idx_pos, date_idx in enumerate(indices):
+            start_idx = max(0, date_idx - 2)
+            end_idx = indices[idx_pos + 1] if idx_pos + 1 < len(indices) else len(lines)
+            block = [lines[i] for i in range(start_idx, end_idx)]
+
+            # header candidates: first few non-empty lines in the block
+            nonempty = [b.strip() for b in block if b.strip()]
+            header_candidates = nonempty[:3]
+
+            title = "Role"
+            company = "Company"
+
+            # Try to identify title/company
+            if header_candidates:
+                if len(header_candidates) >= 2:
+                    a, b = header_candidates[0], header_candidates[1]
+                    # prefer title/company ordering if heuristics match
+                    if is_likely_title(a) and is_likely_company(b):
+                        title, company = a, b
+                    elif is_likely_company(a) and is_likely_title(b):
+                        title, company = b, a
+                    else:
+                        # If company is on the next line (often italic below title),
+                        # it's typically shorter and contains few words — treat that as company.
+                        def short_company_candidate(s: str) -> bool:
+                            ws = s.split()
+                            if not s:
+                                return False
+                            if len(ws) <= 6 and len(s) < 60 and not re.search(r'\d{4}', s):
+                                return True
+                            return False
+
+                        if short_company_candidate(b) and len(a.split()) > len(b.split()):
+                            title, company = a, b
+                        else:
+                            # try regex split on ' at ' or separators
+                            m = re.match(title_company_pattern, header_candidates[0], re.IGNORECASE)
+                            if m:
+                                title, company = m.group(1).strip(), m.group(2).strip()
+                            else:
+                                title, company = header_candidates[0], header_candidates[1]
+                else:
+                    # single header line
+                    single = header_candidates[0]
+                    m = re.match(title_company_pattern, single, re.IGNORECASE)
+                    if m:
+                        title, company = m.group(1).strip(), m.group(2).strip()
+                    else:
+                        # try to remove dates and use remaining as title
+                        title = re.sub(date_pattern, '', single, flags=re.IGNORECASE).strip() or "Role"
+
+            # Extract date string from block (first match)
+            date_match = re.search(date_pattern, ' '.join(block), re.IGNORECASE)
             dates = date_match.group(0) if date_match else ""
-            
-            # Try to parse title and company
-            if title_match:
-                title = title_match.group(1).strip()
-                company = title_match.group(2).strip()
-            else:
-                # Use the line without dates as title
-                title = re.sub(date_pattern, '', line_stripped, flags=re.IGNORECASE).strip()
-                title = re.sub(r'[-–—|,]\s*$', '', title).strip()
-                company = ""
-            
-            current_job = {
+
+            # Normalize date ranges
+            start_date = ""
+            end_date = ""
+            if dates:
+                parts = re.split(r'\s*(?:-|–|—|to)\s*', dates, maxsplit=1, flags=re.IGNORECASE)
+                start_date = parts[0].strip() if parts else ""
+                if len(parts) > 1:
+                    raw_end = parts[1].strip()
+                    end_date = increment_month_string(raw_end)
+                else:
+                    end_date = "Present" if re.search(r'Present|Current|Now', dates, re.IGNORECASE) else ""
+
+            # Descriptions: take lines after header candidates in the block that look like bullets or sentences
+            descriptions: List[str] = []
+            # Determine how many header lines we consumed from the block
+            consumed = 0
+            # find first non-empty lines positions
+            pos = 0
+            for i, b in enumerate(block):
+                if b.strip():
+                    pos = i
+                    break
+            # Count header lines used
+            for h in header_candidates:
+                # try to find h in block sequentially
+                for j in range(consumed, len(block)):
+                    if block[j].strip() == h:
+                        consumed = j + 1
+                        break
+
+            for l in block[consumed:]:
+                raw_line = l
+                if not raw_line.strip():
+                    continue
+                if is_date_line(raw_line):
+                    continue
+                bullet_start = bool(re.match(r'^[\s]*[•\-\*\u2022○◦▪►→·]', raw_line))
+                indented = bool(re.match(r'^[\s]+\S', raw_line))
+                clean_line = re.sub(r'^[\s]*[•\-\*\u2022○◦▪►→·]?\s*', '', raw_line).strip()
+                if bullet_start:
+                    if clean_line:
+                        descriptions.append(clean_line)
+                elif indented:
+                    if clean_line:
+                        if descriptions:
+                            descriptions[-1] = descriptions[-1] + ' ' + clean_line
+                        else:
+                            descriptions.append(clean_line)
+                else:
+                    # Non-bullet line: treat as a description sentence only if reasonably long
+                    if clean_line and len(clean_line) > 20:
+                        descriptions.append(clean_line)
+
+            experiences.append({
                 "title": title or "Role",
                 "company": company or "Company",
-                "startDate": dates.split('-')[0].strip() if '-' in dates else dates,
-                "endDate": dates.split('-')[-1].strip() if '-' in dates else "Present",
-            }
-            current_descriptions = []
-        
-        elif current_job:
-            # This is a description line for the current job
-            # Clean bullet points
-            clean_line = re.sub(r'^[\s•\-\*○◦▪►]\s*', '', line_stripped)
-            if clean_line and len(clean_line) > 10:
-                current_descriptions.append(clean_line)
-        
-        elif not current_job and line_stripped:
-            # First experience entry without clear header
-            current_job = {
-                "title": line_stripped[:50],
-                "company": "",
-                "startDate": "",
-                "endDate": "Present",
-            }
-            current_descriptions = []
-    
-    # Don't forget the last job
-    if current_job:
-        current_job["description"] = current_descriptions if current_descriptions else [line_stripped]
-        experiences.append(current_job)
-    
-    # If no structured parsing worked, create a single entry with all text
-    if not experiences and lines:
-        experiences.append({
-            "title": "Professional Experience",
-            "company": "",
-            "startDate": "",
-            "endDate": "",
-            "description": [line.strip() for line in lines if line.strip()]
-        })
-    
+                "startDate": start_date,
+                "endDate": end_date or "Present",
+                "description": descriptions
+            })
+    else:
+        # fallback: earlier line-based heuristic when no date anchors found
+        current_job: Dict[str, Any] = {}
+        current_descriptions: List[str] = []
+        title_company_pattern_relaxed = title_company_pattern
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            title_match = re.match(title_company_pattern_relaxed, line_stripped, re.IGNORECASE)
+            if title_match:
+                # If there's an active job, finalize it before starting a new one
+                if current_job:
+                    current_job["description"] = current_descriptions
+                    experiences.append(current_job)
+                # start a new job
+                title = title_match.group(1).strip()
+                company = title_match.group(2).strip()
+                current_job = {"title": title, "company": company, "startDate": "", "endDate": "Present"}
+                current_descriptions = []
+                continue
+            if current_job:
+                # same bullet logic as before
+                raw_line = line
+                bullet_start = bool(re.match(r'^[\s]*[•\-\*\u2022○◦▪►→·]', raw_line))
+                indented = bool(re.match(r'^[\s]+\S', raw_line))
+                clean_line = re.sub(r'^[\s]*[•\-\*\u2022○◦▪►→·]?\s*', '', raw_line).strip()
+                if bullet_start:
+                    if clean_line:
+                        current_descriptions.append(clean_line)
+                elif indented:
+                    if clean_line:
+                        if current_descriptions:
+                            current_descriptions[-1] = current_descriptions[-1] + ' ' + clean_line
+                        else:
+                            current_descriptions.append(clean_line)
+                else:
+                    if clean_line and len(clean_line) > 20:
+                        current_descriptions.append(clean_line)
+        if current_job:
+            current_job["description"] = current_descriptions
+            experiences.append(current_job)
+
     return experiences
 
 
@@ -279,13 +459,14 @@ def parse_skills_section(lines: List[str]) -> List[Dict[str, str]]:
 
 def parse_resume_text(text: str) -> Dict[str, Any]:
     """Parse resume text into structured data."""
-    lines = [line for line in text.split('\n')]
-    non_empty_lines = [line.strip() for line in lines if line.strip()]
-    
-    # Extract contact info
-    contact = extract_contact_info(text, non_empty_lines)
-    
-    # Section extraction using state machine
+    # Preserve raw lines (to keep indentation and bullet markers) and a stripped version for header/contact heuristics
+    raw_lines = [line for line in text.split('\n') if line.strip()]
+    stripped_lines = [line.strip() for line in raw_lines]
+
+    # Extract contact info using stripped lines
+    contact = extract_contact_info(text, stripped_lines)
+
+    # Section extraction using state machine; store raw lines per section to preserve bullets/indent
     sections = {
         "summary": [],
         "experience": [],
@@ -294,17 +475,19 @@ def parse_resume_text(text: str) -> Dict[str, Any]:
         "projects": [],
         "certifications": [],
     }
-    
+
     current_section = "summary"
-    
-    for line in non_empty_lines:
-        detected = detect_section(line)
+
+    # Use both raw and stripped lines to detect headers but keep raw for content
+    for raw, stripped in zip(raw_lines, stripped_lines):
+        detected = detect_section(stripped)
         if detected:
             current_section = detected
-        else:
-            sections[current_section].append(line)
+            continue
+        sections[current_section].append(raw)
     
     # Process each section
+    # Pass raw experience lines (with indentation) so bullets and continuations can be detected
     experience = parse_experience_section(sections["experience"])
     education = parse_education_section(sections["education"])
     skills = parse_skills_section(sections["skills"])
