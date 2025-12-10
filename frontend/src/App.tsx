@@ -12,6 +12,7 @@ import Settings from "./pages/Settings";
 import FirstApplicationWorkflow from "./pages/FirstApplicationWorkflow";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
+import ResetPassword from "./pages/ResetPassword"; // Import ResetPassword
 import CoverLetter from "./pages/CoverLetter"; // Import CoverLetter
 import { PlaylistProvider } from "./context/PlaylistContext";
 import { AuthProvider } from "./context/AuthContext";
@@ -42,6 +43,7 @@ const App = () => (
                       <Route path="first-application" element={<FirstApplicationWorkflow />} />
                       <Route path="cover-letter" element={<CoverLetter />} /> {/* New route */}
                       <Route path="auth" element={<Auth />} />
+                      <Route path="reset-password" element={<ResetPassword />} />
                       {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                       <Route path="*" element={<NotFound />} />
                     </Route>
